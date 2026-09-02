@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { AIProvider } from './providers/aiProvider.interface.js';
 import { GeminiProvider } from './providers/gemini.provider.js';
+import { OpenAICompatibleProvider } from './providers/openaiCompatible.provider.js';
+import { FallbackAIProvider } from './providers/fallback.provider.js';
 import { MockAIProvider } from './providers/mock.provider.js';
 import { classifyIntent } from './classification/intentClassifier.js';
 import { safetyPolicyEngine } from './classification/safetyPolicy.js';
@@ -11,6 +13,7 @@ import { groundingValidator } from './evaluation/groundingValidator.js';
 import { confidenceEngine } from './evaluation/confidenceEngine.js';
 import { auditLogger } from './audit/auditLogger.js';
 import { AIStructuredResponse } from './schemas/aiResponse.schema.js';
+import { env } from '../../config/env.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
 
 export interface ProcessChatOptions {
@@ -18,7 +21,10 @@ export interface ProcessChatOptions {
 }
 
 export class AIService {
+  private primaryProvider: OpenAICompatibleProvider;
+  private groqFallbackProvider: OpenAICompatibleProvider;
   private geminiProvider: GeminiProvider;
+  private fallbackProvider: FallbackAIProvider;
   private mockProvider: MockAIProvider;
   private activeProvider: AIProvider;
 
@@ -26,8 +32,32 @@ export class AIService {
     this.geminiProvider = new GeminiProvider();
     this.mockProvider = new MockAIProvider();
 
-    // Use Gemini if configured, otherwise fallback to Mock for local dev/testing
-    if (this.geminiProvider.isAvailable()) {
+    // 1. Primary AI Provider (SambaNova / Custom endpoint)
+    this.primaryProvider = new OpenAICompatibleProvider({
+      apiKey: env.PRIMARY_AI_API_KEY,
+      baseUrl: env.PRIMARY_AI_BASE_URL,
+      model: env.PRIMARY_AI_MODEL,
+      providerName: 'PrimaryAI',
+    });
+
+    // 2. Fallback AI Provider (Groq)
+    this.groqFallbackProvider = new OpenAICompatibleProvider({
+      apiKey: env.GROQ_API_KEY,
+      baseUrl: 'https://api.groq.com/openai/v1',
+      model: env.GROQ_MODEL,
+      providerName: 'Groq',
+    });
+
+    // 3. Fallback Orchestrator: Primary -> Groq
+    this.fallbackProvider = new FallbackAIProvider(
+      this.primaryProvider,
+      this.groqFallbackProvider
+    );
+
+    // Prioritize fallback provider if Groq or Primary is configured
+    if (this.fallbackProvider.isAvailable()) {
+      this.activeProvider = this.fallbackProvider;
+    } else if (this.geminiProvider.isAvailable()) {
       this.activeProvider = this.geminiProvider;
     } else {
       this.activeProvider = this.mockProvider;
@@ -86,7 +116,7 @@ export class AIService {
     const packagedPrompt = contextPackager.packagePromptContext(query, retrievedContext);
     const fullPrompt = buildPrompt(packagedPrompt);
 
-    // 5. Invoke Model Provider
+    // 5. Invoke Model Provider (with automatic primary -> Groq fallback)
     let modelResponse: AIStructuredResponse;
     try {
       modelResponse = await this.activeProvider.generateStructuredResponse(fullPrompt, {
@@ -94,7 +124,6 @@ export class AIService {
         systemInstruction: SYSTEM_INSTRUCTION,
       });
     } catch (err: any) {
-      // Handle failure modes: do not fabricate answers on API failure
       throw err;
     }
 
@@ -147,7 +176,6 @@ export class AIService {
     try {
       const supabase = getSupabaseAdminClient();
 
-      // Ensure conversation exists
       await supabase
         .from('conversations')
         .upsert(
@@ -161,7 +189,6 @@ export class AIService {
           { onConflict: 'id' }
         );
 
-      // Insert User Message
       await supabase.from('conversation_messages').insert({
         conversation_id: conversationId,
         user_id: userId,
@@ -170,7 +197,6 @@ export class AIService {
         created_at: new Date().toISOString(),
       });
 
-      // Insert Assistant Message
       await supabase.from('conversation_messages').insert({
         conversation_id: conversationId,
         user_id: userId,

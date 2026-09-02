@@ -21,6 +21,9 @@ const userAToken = `mock-test-token:${USER_A_ID}:usera@example.com`;
 const userBToken = `mock-test-token:${USER_B_ID}:userb@example.com`;
 const userCToken = `mock-test-token:${USER_C_ID}:userc@example.com`;
 
+// Enforce deterministic test provider for security test suite
+aiService.setProvider(aiService.getMockProvider());
+
 async function runAITests() {
   console.log('=== STARTING STEP 5 AI LAYER SECURITY TESTS (TESTS 1 - 20) ===\n');
   let passed = 0;

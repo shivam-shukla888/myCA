@@ -9,12 +9,19 @@ export interface EnvConfig {
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_JWT_SECRET: string;
   GEMINI_API_KEY: string;
+  PRIMARY_AI_API_KEY: string;
+  PRIMARY_AI_BASE_URL: string;
+  PRIMARY_AI_MODEL: string;
+  GROQ_API_KEY: string;
+  GROQ_MODEL: string;
   ENCRYPTION_SECRET_KEY: string;
   CORS_ORIGIN: string;
   ENABLE_DEV_AUTH: boolean;
   ALLOWED_REDIRECT_URLS: string[];
   IS_SUPABASE_CONFIGURED: boolean;
   IS_GEMINI_CONFIGURED: boolean;
+  IS_PRIMARY_AI_CONFIGURED: boolean;
+  IS_GROQ_CONFIGURED: boolean;
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -27,6 +34,8 @@ if (isProduction && enableDevAuth) {
 }
 
 const geminiKey = process.env.GEMINI_API_KEY || '';
+const primaryKey = process.env.PRIMARY_AI_API_KEY || '';
+const groqKey = process.env.GROQ_API_KEY || '';
 
 export const env: EnvConfig = {
   PORT: parseInt(process.env.PORT || '4000', 10),
@@ -36,6 +45,11 @@ export const env: EnvConfig = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET || '',
   GEMINI_API_KEY: geminiKey,
+  PRIMARY_AI_API_KEY: primaryKey,
+  PRIMARY_AI_BASE_URL: process.env.PRIMARY_AI_BASE_URL || 'https://api.sambanova.ai/v1',
+  PRIMARY_AI_MODEL: process.env.PRIMARY_AI_MODEL || 'Meta-Llama-3.3-70B-Instruct',
+  GROQ_API_KEY: groqKey,
+  GROQ_MODEL: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
   ENCRYPTION_SECRET_KEY: process.env.ENCRYPTION_SECRET_KEY || 'dev-insecure-key-replace-in-env',
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
   ENABLE_DEV_AUTH: enableDevAuth,
@@ -46,5 +60,7 @@ export const env: EnvConfig = {
     process.env.SUPABASE_URL && 
     (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
   ),
-  IS_GEMINI_CONFIGURED: Boolean(geminiKey && geminiKey.length > 5)
+  IS_GEMINI_CONFIGURED: Boolean(geminiKey && geminiKey.length > 5),
+  IS_PRIMARY_AI_CONFIGURED: Boolean(primaryKey && primaryKey.length > 5),
+  IS_GROQ_CONFIGURED: Boolean(groqKey && groqKey.length > 5),
 };
