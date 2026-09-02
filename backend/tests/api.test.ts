@@ -4,8 +4,12 @@ import { redactSensitiveData } from '../src/middleware/logger.js';
 import { testUserRoles } from '../src/middleware/auth.js';
 import { SignJWT } from 'jose';
 import { getSupabaseClient } from '../src/config/supabase.js';
+import { aiService } from '../src/modules/ai/ai.service.js';
 
 const app = createApp();
+
+// Use deterministic mock AI provider for API integration tests
+aiService.setProvider(aiService.getMockProvider());
 
 const USER_A_ID = '73422394-8b34-423d-8577-ff1c3c40614c';
 const USER_B_ID = 'b2222222-2222-2222-2222-222222222222';
@@ -36,18 +40,25 @@ async function runTests() {
   }
 
   try {
-    // 0. Authenticate with real Supabase Auth to obtain a live cryptographic access token
-    const supabase = getSupabaseClient();
-    const loginRes = await supabase.auth.signInWithPassword({
-      email: 'personal_ca_test_step4@gmail.com',
-      password: 'TestPassword123!',
-    });
-
-    if (loginRes.data.session?.access_token) {
-      realUserAToken = loginRes.data.session.access_token;
-      console.log('[INFO] Obtained live Supabase Auth JWT token for User A');
-    } else {
-      console.warn('[WARN] Live login session not retrieved:', loginRes.error?.message);
+    // 0. Authenticate with real Supabase Auth if available (with 2s timeout for CI safety)
+    try {
+      const supabase = getSupabaseClient();
+      const loginPromise = supabase.auth.signInWithPassword({
+        email: 'personal_ca_test_step4@gmail.com',
+        password: 'TestPassword123!',
+      });
+      const timeoutPromise = new Promise<any>((resolve) =>
+        setTimeout(() => resolve({ data: { session: null }, error: { message: 'CI auth network timeout fallback' } }), 2000)
+      );
+      const loginRes = await Promise.race([loginPromise, timeoutPromise]);
+      if (loginRes.data?.session?.access_token) {
+        realUserAToken = loginRes.data.session.access_token;
+        console.log('[INFO] Obtained live Supabase Auth JWT token for User A');
+      } else {
+        console.warn('[WARN] Live login session not retrieved:', loginRes.error?.message);
+      }
+    } catch (e: any) {
+      console.warn('[WARN] Live auth connection skipped:', e.message);
     }
 
     // Generate expired token for expiration test
