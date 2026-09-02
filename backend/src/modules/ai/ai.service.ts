@@ -26,8 +26,7 @@ interface CachedAIResponse {
 }
 
 export class AIService {
-  private primaryProvider: OpenAICompatibleProvider;
-  private groqFallbackProvider: OpenAICompatibleProvider;
+  private groqProvider: OpenAICompatibleProvider;
   private geminiProvider: GeminiProvider;
   private fallbackProvider: FallbackAIProvider;
   private mockProvider: MockAIProvider;
@@ -36,39 +35,33 @@ export class AIService {
   private readonly CACHE_TTL_MS = 60 * 1000; // 60s user-isolated TTL
 
   constructor() {
-    this.geminiProvider = new GeminiProvider();
     this.mockProvider = new MockAIProvider();
+    this.geminiProvider = new GeminiProvider();
 
-    // 1. Primary AI Provider (SambaNova / Custom endpoint)
-    this.primaryProvider = new OpenAICompatibleProvider({
-      apiKey: env.PRIMARY_AI_API_KEY,
-      baseUrl: env.PRIMARY_AI_BASE_URL,
-      model: env.PRIMARY_AI_MODEL,
-      providerName: 'PrimaryAI',
-    });
-
-    // 2. Fallback AI Provider (Groq)
-    this.groqFallbackProvider = new OpenAICompatibleProvider({
+    // TIER 1 — PRIMARY AI PROVIDER (Groq)
+    this.groqProvider = new OpenAICompatibleProvider({
       apiKey: env.GROQ_API_KEY,
       baseUrl: 'https://api.groq.com/openai/v1',
       model: env.GROQ_MODEL,
       providerName: 'Groq',
     });
 
-    // 3. Fallback Orchestrator: Primary (SambaNova) -> Groq
+    // TIER 2 — OPTIONAL FAILOVER AI PROVIDER (Google Gemini)
+    // Orchestrator: Groq (Primary) -> Gemini (Failover)
     this.fallbackProvider = new FallbackAIProvider(
-      this.primaryProvider,
-      this.groqFallbackProvider
+      this.groqProvider,
+      this.geminiProvider
     );
 
-    // ARCHITECTURE RECONCILIATION:
-    // 1. If GEMINI_API_KEY is configured, Google Gemini (gemini-2.5-flash) is the canonical primary engine.
-    // 2. If Gemini is unavailable or not configured, FallbackAIProvider (Primary/SambaNova -> Groq) acts as secondary.
-    // 3. If offline/test mode, MockAIProvider acts as deterministic test harness.
-    if (this.geminiProvider.isAvailable()) {
-      this.activeProvider = this.geminiProvider;
-    } else if (this.fallbackProvider.isAvailable()) {
+    // DETERMINISTIC PROVIDER SELECTION:
+    // 1. If GROQ_API_KEY is configured and valid, Groq MUST be selected as Tier 1 Primary (with Gemini as failover if configured).
+    // 2. If Groq is not configured, check if Gemini alone is configured.
+    // 3. If neither external provider is available, use MockAIProvider for deterministic offline/test mode.
+    if (this.groqProvider.isAvailable()) {
+      // Groq is available: use fallbackProvider (Groq primary -> Gemini failover if Gemini is configured)
       this.activeProvider = this.fallbackProvider;
+    } else if (this.geminiProvider.isAvailable()) {
+      this.activeProvider = this.geminiProvider;
     } else {
       this.activeProvider = this.mockProvider;
     }
