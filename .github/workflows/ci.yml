@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
@@ -31,36 +31,27 @@ jobs:
         run: npm run build
 
       - name: Run Core API & Auth Suite
-        run: npx tsx tests/api.test.ts
+        run: npm run test:auth
         env:
           NODE_ENV: test
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co' }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo' }}
           ENCRYPTION_SECRET_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
       - name: Run AI Layer Safety & Grounding Suite
-        run: npx tsx tests/ai.test.ts
+        run: npm run test:ai
         env:
           NODE_ENV: test
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co' }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo' }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           ENCRYPTION_SECRET_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
       - name: Run Performance & Idempotency Suite
-        run: npx tsx tests/step7_performance.test.ts
+        run: npm run test:perf
         env:
           NODE_ENV: test
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co' }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo' }}
           ENCRYPTION_SECRET_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
       - name: Run Hardened Security Audit Suite
-        run: npx tsx tests/step8_security.test.ts
+        run: npm run test:security
         env:
           NODE_ENV: test
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co' }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo' }}
           ENCRYPTION_SECRET_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
   frontend-quality-gate:

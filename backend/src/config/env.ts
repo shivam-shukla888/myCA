@@ -40,8 +40,12 @@ const groqKey = process.env.GROQ_API_KEY || '';
 export const env: EnvConfig = {
   PORT: parseInt(process.env.PORT || '4000', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
-  SUPABASE_URL: process.env.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co',
-  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY || '',
+  SUPABASE_URL: (process.env.SUPABASE_URL && process.env.SUPABASE_URL.startsWith('http'))
+    ? process.env.SUPABASE_URL
+    : 'https://pesvgxqpdeeyhjvqoaip.supabase.co',
+  SUPABASE_ANON_KEY: (process.env.SUPABASE_ANON_KEY && process.env.SUPABASE_ANON_KEY.length > 20)
+    ? process.env.SUPABASE_ANON_KEY
+    : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo',
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET || '',
   GEMINI_API_KEY: geminiKey,
