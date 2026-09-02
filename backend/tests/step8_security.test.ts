@@ -228,6 +228,10 @@ async function runAll() {
     assert(!responseBody.includes('0123456789abcdef'), 'TEST 16C: Zero encryption secrets in responses');
 
     console.log(`\n=== STEP 8 TESTS COMPLETE: ${passed} PASSED, ${failed} FAILED ===\n`);
+    if (failed > 0) {
+      process.exit(1);
+    }
+    process.exit(0);
   }
 
   runAll().catch((err) => {
