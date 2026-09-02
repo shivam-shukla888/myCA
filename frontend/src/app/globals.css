@@ -1,0 +1,225 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* Material Surface Tokens - Warm Paper & Deep Carbon Ink */
+  --canvas-primary: #F7F6F2;
+  --canvas-surface: #FFFFFF;
+  --canvas-elevated: #FAF9F6;
+  --canvas-inset: #EEECE6;
+  --canvas-contrast: #14171A;
+
+  /* Typography / Ink Tokens */
+  --ink-primary: #121518;
+  --ink-secondary: #4E5660;
+  --ink-tertiary: #848D99;
+  --ink-faint: #B5BCC4;
+  --ink-inverted: #F7F6F2;
+
+  /* Hairline Precision Boundaries (Instrument & Horological lines) */
+  --border-hairline: rgba(18, 21, 24, 0.08);
+  --border-strong: rgba(18, 21, 24, 0.18);
+  --border-contrast: #121518;
+
+  /* Signal Accents (Functional, Non-decorative) */
+  --signal-amber: #C27803;      /* Attention / Action required */
+  --signal-amber-soft: #FBF4E8;
+  --signal-forest: #236545;     /* Grounded / Verified / Credit */
+  --signal-forest-soft: #EDF6F1;
+  --signal-terracotta: #A53924; /* Liability / Tax obligation / Outflow */
+  --signal-terracotta-soft: #F9EFEB;
+
+  /* Font Families */
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Spatial Geometry */
+  --spine-width: 260px;
+  --max-content-width: 1400px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  min-height: 100vh;
+  background-color: var(--canvas-primary);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tabular Financial Numerals */
+.tabular-nums,
+[data-financial-num] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Editorial Serif Headlines */
+h1, h2, h3, .font-editorial {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ink-primary);
+}
+
+/* Technical Compact Metadata */
+.meta-tag,
+.meta-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-tertiary);
+}
+
+/* Layout Framework */
+.app-viewport {
+  display: flex;
+  min-height: 100vh;
+  background: var(--canvas-primary);
+}
+
+.main-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--canvas-primary);
+}
+
+.content-canvas {
+  flex: 1;
+  padding: 36px 48px;
+  max-width: var(--max-content-width);
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Instrument Paneling (Replacing rounded generic cards) */
+.instrument-surface {
+  background: var(--canvas-surface);
+  border: 1px solid var(--border-hairline);
+  position: relative;
+}
+
+.instrument-inset {
+  background: var(--canvas-inset);
+  border: 1px solid var(--border-hairline);
+}
+
+.hairline-rule {
+  height: 1px;
+  background: var(--border-hairline);
+  border: none;
+  margin: 24px 0;
+}
+
+.hairline-vertical {
+  width: 1px;
+  background: var(--border-hairline);
+}
+
+/* Interactive Elements */
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.instrument-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: var(--ink-primary);
+  color: var(--ink-inverted);
+  border: 1px solid var(--ink-primary);
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.instrument-btn:hover {
+  opacity: 0.92;
+}
+
+.instrument-btn:active {
+  transform: translateY(1px);
+}
+
+.instrument-btn-secondary {
+  background: transparent;
+  color: var(--ink-primary);
+  border: 1px solid var(--border-strong);
+}
+
+.instrument-btn-secondary:hover {
+  background: var(--canvas-inset);
+}
+
+/* Status Signals */
+.badge-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  border-radius: 1px;
+}
+
+.badge-forest {
+  background: var(--signal-forest-soft);
+  color: var(--signal-forest);
+  border: 1px solid rgba(35, 101, 69, 0.2);
+}
+
+.badge-amber {
+  background: var(--signal-amber-soft);
+  color: var(--signal-amber);
+  border: 1px solid rgba(194, 120, 3, 0.2);
+}
+
+.badge-terracotta {
+  background: var(--signal-terracotta-soft);
+  color: var(--signal-terracotta);
+  border: 1px solid rgba(165, 57, 36, 0.2);
+}
+
+/* Precision Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ink-faint);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-tertiary);
+}
+
+/* Responsive Handling */
+@media (max-width: 900px) {
+  .app-viewport {
+    flex-direction: column;
+  }
+  .content-canvas {
+    padding: 24px 16px;
+  }
+}
