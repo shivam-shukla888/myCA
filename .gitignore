@@ -1,0 +1,29 @@
+# Environment and credentials
+.env
+.env*.local
+*.env
+*.pem
+*.key
+*.cert
+*.id_rsa
+service-role-key*
+supabase-service-key*
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
