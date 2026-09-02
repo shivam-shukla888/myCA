@@ -110,6 +110,9 @@ export class TransactionService {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }
 
+    const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+    const offset = Math.max(Number(query.offset) || 0, 0);
+
     // Try Supabase first
     try {
       const supabase = getSupabaseAdminClient();
@@ -121,7 +124,7 @@ export class TransactionService {
       if (query.category) dbQuery = dbQuery.eq('category', query.category);
       if (query.is_tax_relevant !== undefined) dbQuery = dbQuery.eq('is_tax_relevant', query.is_tax_relevant);
 
-      dbQuery = dbQuery.order('date', { ascending: false }).range(query.offset, query.offset + query.limit - 1);
+      dbQuery = dbQuery.order('date', { ascending: false }).range(offset, offset + limit - 1);
 
       const { data, error, count } = await dbQuery;
       if (!error && data && data.length > 0) {
@@ -143,7 +146,7 @@ export class TransactionService {
 
     filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    const paginated = filtered.slice(query.offset, query.offset + query.limit);
+    const paginated = filtered.slice(offset, offset + limit);
     return { transactions: paginated, total: filtered.length };
   }
 

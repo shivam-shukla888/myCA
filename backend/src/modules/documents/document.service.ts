@@ -90,6 +90,9 @@ export class DocumentService {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }
 
+    const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+    const offset = Math.max(Number(query.offset) || 0, 0);
+
     try {
       const supabase = getSupabaseAdminClient();
       let dbQuery = supabase.from('documents').select('*', { count: 'exact' }).eq('user_id', userId);
@@ -97,7 +100,7 @@ export class DocumentService {
       if (query.document_type) dbQuery = dbQuery.eq('document_type', query.document_type);
       if (query.financial_year) dbQuery = dbQuery.eq('financial_year', query.financial_year);
 
-      dbQuery = dbQuery.order('created_at', { ascending: false }).range(query.offset, query.offset + query.limit - 1);
+      dbQuery = dbQuery.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
 
       const { data, error, count } = await dbQuery;
       if (!error && data && data.length > 0) {
@@ -113,7 +116,7 @@ export class DocumentService {
     if (query.financial_year) filtered = filtered.filter((d) => d.financial_year === query.financial_year);
 
     filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    const paginated = filtered.slice(query.offset, query.offset + query.limit);
+    const paginated = filtered.slice(offset, offset + limit);
 
     return { documents: paginated, total: filtered.length };
   }

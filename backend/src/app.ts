@@ -5,12 +5,15 @@ import { env } from './config/env.js';
 import { requestLogger } from './middleware/logger.js';
 import { errorHandler, AppError } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/auth.js';
+import { requestTimeout } from './middleware/timeout.js';
+import { idempotencyMiddleware } from './middleware/idempotency.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { transactionRoutes } from './modules/transactions/transaction.routes.js';
 import { documentRoutes } from './modules/documents/document.routes.js';
 import { chatRoutes } from './modules/chat/chat.routes.js';
 import { reportRoutes } from './modules/reports/report.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
+import jobRoutes from './modules/jobs/job.routes.js';
 
 export function createApp(): Express {
   const app = express();
@@ -20,6 +23,9 @@ export function createApp(): Express {
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+
+  // Request timeout protection (15s standard, 30s chat)
+  app.use(requestTimeout(15000));
 
   // Safe request logging with redaction
   app.use(requestLogger);
@@ -39,11 +45,15 @@ export function createApp(): Express {
   // Authentication routes (signup, login, magic-link are public; /me is protected)
   app.use('/api/v1/auth', authRoutes);
 
+  // Idempotency protection on mutating endpoints
+  app.use(idempotencyMiddleware);
+
   // Protected Core Financial & Operational APIs (require valid Supabase JWT)
   app.use('/api/v1/transactions', requireAuth, transactionRoutes);
   app.use('/api/v1/documents', requireAuth, documentRoutes);
   app.use('/api/v1/chat', requireAuth, chatRoutes);
   app.use('/api/v1/reports', requireAuth, reportRoutes);
+  app.use('/api/v1/jobs', requireAuth, jobRoutes);
 
   // Admin APIs (requires valid Supabase JWT + ADMIN role)
   app.use('/api/v1/admin', adminRoutes);

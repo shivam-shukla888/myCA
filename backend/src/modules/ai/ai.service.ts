@@ -20,6 +20,11 @@ export interface ProcessChatOptions {
   conversationId?: string;
 }
 
+interface CachedAIResponse {
+  response: AIStructuredResponse & { conversation_id: string };
+  timestamp: number;
+}
+
 export class AIService {
   private primaryProvider: OpenAICompatibleProvider;
   private groqFallbackProvider: OpenAICompatibleProvider;
@@ -27,6 +32,8 @@ export class AIService {
   private fallbackProvider: FallbackAIProvider;
   private mockProvider: MockAIProvider;
   private activeProvider: AIProvider;
+  private queryCache: Map<string, CachedAIResponse> = new Map();
+  private readonly CACHE_TTL_MS = 60 * 1000; // 60s user-isolated TTL
 
   constructor() {
     this.geminiProvider = new GeminiProvider();
@@ -86,6 +93,17 @@ export class AIService {
     }
 
     const conversationId = options?.conversationId || uuidv4();
+    const normalizedQuery = query.trim().toLowerCase();
+    const cacheKey = `${userId}:${normalizedQuery}`;
+
+    // Check user-scoped cache (NEVER cross-user)
+    const cached = this.queryCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
+      return {
+        ...cached.response,
+        conversation_id: conversationId,
+      };
+    }
 
     // 1. Intent & Risk Classification
     const classification = classifyIntent(query);
@@ -161,10 +179,18 @@ export class AIService {
       conversationId
     );
 
-    return {
+    const finalResponse = {
       ...validatedResponse,
       conversation_id: conversationId,
     };
+
+    // Store in user-scoped cache
+    this.queryCache.set(cacheKey, {
+      response: finalResponse,
+      timestamp: Date.now(),
+    });
+
+    return finalResponse;
   }
 
   private async persistConversationMessages(
