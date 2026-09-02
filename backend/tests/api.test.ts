@@ -1,3 +1,4 @@
+import '../tests/setup.ts';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { redactSensitiveData } from '../src/middleware/logger.js';

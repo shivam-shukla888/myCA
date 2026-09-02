@@ -44,14 +44,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       token = authHeader.slice(7).trim();
     } else if (req.headers.cookie) {
       // 2. Check HttpOnly cookie (personal_ca_session)
-      const cookies = req.headers.cookie.split(';').reduce((acc: Record<string, string>, pair) => {
-        const [k, v] = pair.trim().split('=');
-        if (k && v) acc[k] = decodeURIComponent(v);
-        return acc;
-      }, {});
-      if (cookies['personal_ca_session']) {
-        token = cookies['personal_ca_session'];
-      }
+      const cookies = req.headers.cookie.split(';').reduce((acc: Record<string, string>, pair: string) => {
+          const [k, v] = pair.trim().split('=');
+          if (k && v) acc[k] = decodeURIComponent(v);
+          return acc;
+        }, {} as Record<string, string>);
+       if (cookies['personal_ca_session']) {
+         token = cookies['personal_ca_session'];
+       }
     }
 
     if (!token) {
@@ -68,13 +68,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     // Non-production test tokens for deterministic multi-user security tests
     if (token.startsWith('mock-test-token:')) {
-      if (env.NODE_ENV === 'production') {
-        throw new AppError('Mock tokens are strictly forbidden in production', 401, 'UNAUTHORIZED_INVALID_TOKEN');
-      }
-      const parts = token.split(':');
-      userId = parts[1] || '00000000-0000-0000-0000-000000000001';
-      email = parts[2] || 'test@example.com';
-    } else {
+       // Mock tokens are only allowed in non-production when dev auth is explicitly enabled
+       if (env.NODE_ENV === 'production' || !env.ENABLE_DEV_AUTH) {
+         throw new AppError('Mock tokens are strictly forbidden in production', 401, 'UNAUTHORIZED_INVALID_TOKEN');
+       }
+       const parts = token.split(':');
+       userId = parts[1] || '00000000-0000-0000-0000-000000000001';
+       email = parts[2] || 'test@example.com';
+     } else {
       // Decode claims and check expiration directly
       try {
         const claims = decodeJwt(token);

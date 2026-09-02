@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
-dotenv.config();
-
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config();
+}
 export interface EnvConfig {
   PORT: number;
   NODE_ENV: string;
@@ -25,7 +26,7 @@ export interface EnvConfig {
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
-const enableDevAuth = process.env.ENABLE_DEV_AUTH === 'true';
+const enableDevAuth = process.env.NODE_ENV === 'test' ? true : process.env.ENABLE_DEV_AUTH === 'true';
 
 // PRODUCTION FAIL-SAFE: Never allow development auth in production
 if (isProduction && enableDevAuth) {
