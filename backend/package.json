@@ -9,7 +9,12 @@
     "dev": "tsx watch src/server.ts",
     "test": "tsx tests/api.test.ts"
   },
-  "keywords": ["personal-ai-ca", "fintech", "tax", "ai"],
+  "keywords": [
+    "personal-ai-ca",
+    "fintech",
+    "tax",
+    "ai"
+  ],
   "author": "Shivam Shukla",
   "license": "UNLICENSED",
   "private": true,
@@ -19,6 +24,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
+    "jose": "^6.2.10",
     "uuid": "^11.1.0",
     "zod": "^3.24.2"
   },
