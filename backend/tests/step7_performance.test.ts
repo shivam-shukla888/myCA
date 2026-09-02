@@ -6,6 +6,10 @@ import { jobQueue } from '../src/modules/jobs/jobQueue.js';
 import { aiService } from '../src/modules/ai/ai.service.js';
 
 const app = createApp();
+
+// Enforce deterministic mock AI provider for performance test suite
+aiService.setProvider(aiService.getMockProvider());
+
 const userAToken = 'mock-test-token:11111111-1111-4111-a111-111111111111:userA@example.com';
 const userBToken = 'mock-test-token:22222222-2222-4222-a222-222222222222:userB@example.com';
 
