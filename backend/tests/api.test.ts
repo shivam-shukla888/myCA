@@ -286,7 +286,7 @@ async function runTests() {
       .set('Authorization', `Bearer ${activeUserAToken}`)
       .send({ message: 'What deductions can I claim under Section 80D?', context_type: 'tax_query' });
     assert(
-      resAuthChat.status === 200 && resAuthChat.body.data.status === 'service_boundary_active',
+      resAuthChat.status === 200 && (resAuthChat.body.data.answer || resAuthChat.body.data.status === 'service_boundary_active'),
       'Chat endpoint succeeds under valid authentication'
     );
 

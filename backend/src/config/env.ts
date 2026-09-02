@@ -8,11 +8,13 @@ export interface EnvConfig {
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_JWT_SECRET: string;
+  GEMINI_API_KEY: string;
   ENCRYPTION_SECRET_KEY: string;
   CORS_ORIGIN: string;
   ENABLE_DEV_AUTH: boolean;
   ALLOWED_REDIRECT_URLS: string[];
   IS_SUPABASE_CONFIGURED: boolean;
+  IS_GEMINI_CONFIGURED: boolean;
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -24,6 +26,8 @@ if (isProduction && enableDevAuth) {
   throw new Error('FATAL SECURITY VIOLATION: Development authentication cannot be enabled in production environment. Failing closed.');
 }
 
+const geminiKey = process.env.GEMINI_API_KEY || '';
+
 export const env: EnvConfig = {
   PORT: parseInt(process.env.PORT || '4000', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -31,6 +35,7 @@ export const env: EnvConfig = {
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY || '',
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET || '',
+  GEMINI_API_KEY: geminiKey,
   ENCRYPTION_SECRET_KEY: process.env.ENCRYPTION_SECRET_KEY || 'dev-insecure-key-replace-in-env',
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
   ENABLE_DEV_AUTH: enableDevAuth,
@@ -40,5 +45,6 @@ export const env: EnvConfig = {
   IS_SUPABASE_CONFIGURED: Boolean(
     process.env.SUPABASE_URL && 
     (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
-  )
+  ),
+  IS_GEMINI_CONFIGURED: Boolean(geminiKey && geminiKey.length > 5)
 };
