@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-            "test": "set NODE_ENV=test && set ENABLE_DEV_AUTH=true && tsx tests/api.test.ts",
+    "test": "set NODE_ENV=test && set ENABLE_DEV_AUTH=true && tsx tests/api.test.ts",
     "test:auth": "tsx tests/api.test.ts",
     "test:ai": "tsx tests/ai.test.ts",
     "test:perf": "tsx tests/step7_performance.test.ts",
