@@ -1,6 +1,8 @@
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getSupabaseAdminClient } from '../../../config/supabase.js';
 import { AIStructuredResponse } from '../schemas/aiResponse.schema.js';
+import { env } from '../../../config/env.js';
 
 export interface AuditLogEntry {
   id: string;
@@ -18,9 +20,48 @@ export interface AuditLogEntry {
   disclaimer_text: string;
   reviewed_by_human: boolean; // Must strictly be false on generation
   created_at: string;
+  hmac_signature?: string; // Tamper-evident cryptographic signature
 }
 
 export const inMemoryAuditLogs: AuditLogEntry[] = [];
+
+/**
+ * Generate canonical string representation for HMAC signing
+ */
+export function buildAuditCanonicalString(entry: {
+  id: string;
+  user_id: string;
+  query: string;
+  response: string;
+  model_used: string;
+  confidence_score: number;
+  disclaimer_shown: boolean;
+  created_at: string;
+}): string {
+  return `${entry.id}|${entry.user_id}|${entry.query}|${entry.response}|${entry.model_used}|${entry.confidence_score}|${entry.disclaimer_shown}|${entry.created_at}`;
+}
+
+/**
+ * Generate HMAC-SHA256 signature using server secret key
+ */
+export function generateAuditSignature(canonicalString: string): string {
+  const secret = env.ENCRYPTION_SECRET_KEY || 'server-audit-secret-key-default-salt';
+  return crypto.createHmac('sha256', secret).update(canonicalString).digest('hex');
+}
+
+/**
+ * Verify whether an audit log entry has been tampered with
+ */
+export function verifyAuditEntry(entry: AuditLogEntry): boolean {
+  if (!entry.hmac_signature) return false;
+  const canonical = buildAuditCanonicalString(entry);
+  const expectedSignature = generateAuditSignature(canonical);
+  // Constant-time comparison to prevent timing attacks
+  const actualBuffer = Buffer.from(entry.hmac_signature, 'hex');
+  const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+  if (actualBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
 
 export class AuditLogger {
   async logRecommendation(
@@ -64,6 +105,10 @@ export class AuditLogger {
       reviewed_by_human: false, // Rule: Never set to true automatically
       created_at: now,
     };
+
+    // Compute tamper-evident HMAC signature
+    const canonical = buildAuditCanonicalString(entry);
+    entry.hmac_signature = generateAuditSignature(canonical);
 
     // Store in-memory for immediate test verification
     inMemoryAuditLogs.push(entry);

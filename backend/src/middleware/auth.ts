@@ -33,19 +33,30 @@ export const testUserRoles = new Map<string, UserRole>();
  */
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
+    let token = '';
     const authHeader = req.headers.authorization;
 
-    // 1. Missing Authorization header
-    if (!authHeader) {
-      throw new AppError('Authorization header is missing. Bearer token required.', 401, 'UNAUTHORIZED_NO_TOKEN');
+    // 1. Check Authorization header
+    if (authHeader) {
+      if (!authHeader.startsWith('Bearer ')) {
+        throw new AppError('Malformed authorization header. Expected "Bearer <token>"', 401, 'UNAUTHORIZED_INVALID_HEADER');
+      }
+      token = authHeader.slice(7).trim();
+    } else if (req.headers.cookie) {
+      // 2. Check HttpOnly cookie (personal_ca_session)
+      const cookies = req.headers.cookie.split(';').reduce((acc: Record<string, string>, pair) => {
+        const [k, v] = pair.trim().split('=');
+        if (k && v) acc[k] = decodeURIComponent(v);
+        return acc;
+      }, {});
+      if (cookies['personal_ca_session']) {
+        token = cookies['personal_ca_session'];
+      }
     }
 
-    // 2. Malformed Authorization header format
-    if (!authHeader.startsWith('Bearer ')) {
-      throw new AppError('Malformed authorization header. Expected "Bearer <token>"', 401, 'UNAUTHORIZED_INVALID_HEADER');
+    if (!token) {
+      throw new AppError('Authentication credentials missing. Bearer token or session cookie required.', 401, 'UNAUTHORIZED_NO_TOKEN');
     }
-
-    const token = authHeader.slice(7).trim();
 
     // 3. Empty token check
     if (!token) {

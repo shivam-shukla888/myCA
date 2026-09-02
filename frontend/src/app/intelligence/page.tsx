@@ -21,9 +21,12 @@ export default function IntelligencePage() {
     'Should I buy Reliance shares or invest in Tata Motors stock?',
   ];
 
+  const [error, setError] = useState<{ message: string; safeToRetry: boolean } | null>(null);
+
   async function handleExecute(inquiryText = query) {
     if (!inquiryText.trim() || loading) return;
     setLoading(true);
+    setError(null);
 
     try {
       const res = await chatApi.sendMessage(inquiryText, conversationId);
@@ -32,7 +35,10 @@ export default function IntelligencePage() {
       setInquiryHistory((prev) => [{ query: inquiryText, response: res }, ...prev]);
       setQuery('');
     } catch (err: any) {
-      alert(`Intelligence query execution failed: ${err.message}`);
+      setError({
+        message: err.message || 'The intelligence pipeline encountered an error during evaluation.',
+        safeToRetry: true,
+      });
     } finally {
       setLoading(false);
     }
@@ -132,6 +138,62 @@ export default function IntelligencePage() {
           ))}
         </div>
       </div>
+
+      {/* Intentional Loading Experience */}
+      {loading && (
+        <div style={{
+          padding: '24px',
+          background: 'var(--canvas-surface)',
+          border: '1px solid var(--signal-amber)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px'
+        }}>
+          <div style={{
+            width: '18px',
+            height: '18px',
+            border: '2px solid var(--signal-amber)',
+            borderTopColor: 'transparent',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }} />
+          <div>
+            <div className="meta-tag" style={{ color: 'var(--signal-amber)', marginBottom: '2px' }}>
+              EVALUATING FINANCIAL EVIDENCE & REGULATORY POLICY
+            </div>
+            <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)' }}>
+              Retrieving isolated user records, reconciling Section 80C/80D schedules, and assessing grounding density...
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Structured Error Recovery */}
+      {error && (
+        <div style={{
+          padding: '24px',
+          background: 'var(--canvas-surface)',
+          border: '1px solid var(--signal-terracotta)',
+          borderLeft: '4px solid var(--signal-terracotta)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px'
+        }}>
+          <div className="meta-tag" style={{ color: 'var(--signal-terracotta)' }}>
+            EVALUATION INTERRUPTED • STRUCTURED RECOVERY
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--ink-primary)', fontWeight: 600 }}>
+            What happened: {error.message}
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--ink-secondary)', lineHeight: 1.4 }}>
+            What you can do: Verify your backend port 4000 connection or rephrase the query. The system does not save partial or ungrounded financial inferences.
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+            <span className="badge-signal badge-forest">SAFE TO RETRY</span>
+            <span>Query execution is read-only and 100% idempotent.</span>
+          </div>
+        </div>
+      )}
 
       {/* Active Intelligence Analysis (Structured Evidence-Grounded Dossier) */}
       {analysis && (

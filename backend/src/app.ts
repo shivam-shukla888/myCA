@@ -18,11 +18,36 @@ import jobRoutes from './modules/jobs/job.routes.js';
 export function createApp(): Express {
   const app = express();
 
-  // Basic security and parsing
-  app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+  // Hardened security headers with strict Helmet configuration
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https://pesvgxqpdeeyhjvqoaip.supabase.co'],
+          connectSrc: ["'self'", 'http://localhost:3000', 'https://pesvgxqpdeeyhjvqoaip.supabase.co'],
+          frameAncestors: ["'none'"],
+          objectSrc: ["'none'"],
+        },
+      },
+      crossOriginEmbedderPolicy: false, // Allow cross-origin static loads
+      frameguard: { action: 'deny' },
+      hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+      noSniff: true,
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    })
+  );
+
+  // Strict CORS policy: Reject wildcard '*' in authenticated production environments
+  const corsOrigin = env.NODE_ENV === 'production' && env.CORS_ORIGIN === '*'
+    ? false
+    : env.CORS_ORIGIN;
+
+  app.use(cors({ origin: corsOrigin, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Request timeout protection (15s standard, 30s chat)
   app.use(requestTimeout(15000));

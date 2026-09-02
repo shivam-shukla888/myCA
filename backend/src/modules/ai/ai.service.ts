@@ -55,17 +55,20 @@ export class AIService {
       providerName: 'Groq',
     });
 
-    // 3. Fallback Orchestrator: Primary -> Groq
+    // 3. Fallback Orchestrator: Primary (SambaNova) -> Groq
     this.fallbackProvider = new FallbackAIProvider(
       this.primaryProvider,
       this.groqFallbackProvider
     );
 
-    // Prioritize fallback provider if Groq or Primary is configured
-    if (this.fallbackProvider.isAvailable()) {
-      this.activeProvider = this.fallbackProvider;
-    } else if (this.geminiProvider.isAvailable()) {
+    // ARCHITECTURE RECONCILIATION:
+    // 1. If GEMINI_API_KEY is configured, Google Gemini (gemini-2.5-flash) is the canonical primary engine.
+    // 2. If Gemini is unavailable or not configured, FallbackAIProvider (Primary/SambaNova -> Groq) acts as secondary.
+    // 3. If offline/test mode, MockAIProvider acts as deterministic test harness.
+    if (this.geminiProvider.isAvailable()) {
       this.activeProvider = this.geminiProvider;
+    } else if (this.fallbackProvider.isAvailable()) {
+      this.activeProvider = this.fallbackProvider;
     } else {
       this.activeProvider = this.mockProvider;
     }

@@ -11,7 +11,8 @@ router.post('/signup', validateBody(signupSchema), authController.signup.bind(au
 router.post('/login', validateBody(loginSchema), authController.login.bind(authController));
 router.post('/magic-link', validateBody(magicLinkSchema), authController.magicLink.bind(authController));
 
-// Protected auth profile endpoint
+// Protected auth profile and session management endpoints
 router.get('/me', requireAuth, authController.me.bind(authController));
+router.post('/logout', authController.logout.bind(authController));
 
 export const authRoutes = router;

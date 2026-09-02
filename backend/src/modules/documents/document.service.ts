@@ -25,7 +25,14 @@ export class DocumentService {
     }
 
     const documentId = uuidv4();
-    const sanitizedFileName = input.file_name.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+    // Strict path traversal and filename validation
+    if (input.file_name.includes('..') || input.file_name.includes('/') || input.file_name.includes('\\')) {
+      throw new AppError('Path traversal sequence detected in file name', 400, 'SECURITY_PATH_TRAVERSAL_DETECTED');
+    }
+
+    const baseName = input.file_name.split(/[/\\]/).pop() || 'document';
+    const sanitizedFileName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const storagePath = `${userId}/${documentId}/${sanitizedFileName}`;
 
     const now = new Date().toISOString();

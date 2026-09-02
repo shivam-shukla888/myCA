@@ -15,7 +15,34 @@ export class AuthController {
   async login(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await authService.login(req.body);
+
+      // Set HttpOnly, SameSite=Strict cookie for enhanced XSS defense
+      if (result.session?.access_token) {
+        const isProd = process.env.NODE_ENV === 'production';
+        res.cookie('personal_ca_session', result.session.access_token, {
+          httpOnly: true,
+          secure: isProd,
+          sameSite: 'strict',
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+          path: '/',
+        });
+      }
+
       res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async logout(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.clearCookie('personal_ca_session', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        path: '/',
+      });
+      res.status(200).json({ data: { message: 'Session terminated successfully' } });
     } catch (err) {
       next(err);
     }
