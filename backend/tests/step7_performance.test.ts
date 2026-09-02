@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
@@ -176,5 +176,9 @@ describe('Step 7 — Performance, Idempotency & Job Lifecycle Tests', () => {
       assert.ok(r.body.data.id);
     }
     console.log('[PASS] TEST 6: Concurrent transaction requests executed without race condition');
+  });
+
+  after(() => {
+    process.exit(0);
   });
 });

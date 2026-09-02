@@ -25,9 +25,12 @@ export class BackgroundJobQueue {
 
   constructor() {
     // Background polling loop every 500ms
-    setInterval(() => {
+    const timer = setInterval(() => {
       this.processNextJobs();
     }, 500);
+    if (timer && typeof timer.unref === 'function') {
+      timer.unref();
+    }
   }
 
   public createJob<TData>(
