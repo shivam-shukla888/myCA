@@ -7,6 +7,7 @@ import { errorHandler, AppError } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/auth.js';
 import { requestTimeout } from './middleware/timeout.js';
 import { idempotencyMiddleware } from './middleware/idempotency.js';
+import { authRateLimiter, aiRateLimiter, standardApiRateLimiter } from './middleware/rateLimiter.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { transactionRoutes } from './modules/transactions/transaction.routes.js';
 import { documentRoutes } from './modules/documents/document.routes.js';
@@ -67,21 +68,21 @@ export function createApp(): Express {
     });
   });
 
-  // Authentication routes (signup, login, magic-link are public; /me is protected)
-  app.use('/api/v1/auth', authRoutes);
+  // Differentiated production rate limiters
+  app.use('/api/v1/auth', authRateLimiter, authRoutes);
 
   // Idempotency protection on mutating endpoints
   app.use(idempotencyMiddleware);
 
-  // Protected Core Financial & Operational APIs (require valid Supabase JWT)
-  app.use('/api/v1/transactions', requireAuth, transactionRoutes);
-  app.use('/api/v1/documents', requireAuth, documentRoutes);
-  app.use('/api/v1/chat', requireAuth, chatRoutes);
-  app.use('/api/v1/reports', requireAuth, reportRoutes);
-  app.use('/api/v1/jobs', requireAuth, jobRoutes);
+  // Protected Core Financial & Operational APIs (require valid Supabase JWT + Rate Limiting)
+  app.use('/api/v1/transactions', standardApiRateLimiter, requireAuth, transactionRoutes);
+  app.use('/api/v1/documents', standardApiRateLimiter, requireAuth, documentRoutes);
+  app.use('/api/v1/chat', aiRateLimiter, requireAuth, chatRoutes);
+  app.use('/api/v1/reports', standardApiRateLimiter, requireAuth, reportRoutes);
+  app.use('/api/v1/jobs', standardApiRateLimiter, requireAuth, jobRoutes);
 
   // Admin APIs (requires valid Supabase JWT + ADMIN role)
-  app.use('/api/v1/admin', adminRoutes);
+  app.use('/api/v1/admin', requireAuth, adminRoutes);
 
   // Catch 404
   app.use((req: Request, res: Response, next: NextFunction) => {
