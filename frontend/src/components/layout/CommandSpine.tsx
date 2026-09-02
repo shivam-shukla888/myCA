@@ -20,7 +20,7 @@ export function CommandSpine() {
   const { user, logout, setUserDirectly, token } = useAuth();
 
   const toggleAdminRole = () => {
-    if (!user) return;
+    if (process.env.NODE_ENV !== 'development' || !user) return;
     const newRole = user.role === 'ADMIN' ? 'USER' : 'ADMIN';
     const newToken = `mock-test-token:${user.id}:${user.email}`;
     setUserDirectly({ ...user, role: newRole }, newToken);
@@ -154,15 +154,17 @@ export function CommandSpine() {
           </div>
         </div>
 
-        {/* Role Switcher for Testing (RBAC Demonstration) */}
-        <button
-          onClick={toggleAdminRole}
-          className="instrument-btn instrument-btn-secondary"
-          style={{ width: '100%', justifyContent: 'center', fontSize: '11px' }}
-        >
-          <UserCheck size={13} />
-          Switch to {user?.role === 'ADMIN' ? 'Standard User' : 'Admin Role'}
-        </button>
+        {/* Role Switcher for Testing (RBAC Demonstration - Development Only) */}
+        {process.env.NODE_ENV === 'development' && (
+          <button
+            onClick={toggleAdminRole}
+            className="instrument-btn instrument-btn-secondary"
+            style={{ width: '100%', justifyContent: 'center', fontSize: '11px' }}
+          >
+            <UserCheck size={13} />
+            Switch to {user?.role === 'ADMIN' ? 'Standard User' : 'Admin Role'}
+          </button>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span className="meta-tag" style={{ fontSize: '9.5px' }}>FY 2025–26 (AY 2026–27)</span>

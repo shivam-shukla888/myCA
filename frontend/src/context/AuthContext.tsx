@@ -30,41 +30,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function initAuth() {
+      const isDev = process.env.NODE_ENV === 'development';
       const storedToken = getAuthToken();
+
+      // 1. If stored token is a development mock token:
+      if (storedToken && storedToken.startsWith('mock-test-token:')) {
+        if (!isDev) {
+          // Stale development mock token in production/test -> purge and remain unauthenticated
+          setAuthToken(null);
+          setToken(null);
+          setUser(null);
+          setIsLoading(false);
+          return;
+        } else {
+          // Permitted only in local development
+          setToken(storedToken);
+          setUser({
+            id: '73422394-8b34-423d-8577-ff1c3c40614c',
+            email: 'personal_ca_test_step4@gmail.com',
+            role: 'USER',
+            full_name: 'Shivam Shukla',
+            business_type: 'individual_proprietor',
+          });
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // 2. If no token exists in storage:
       if (!storedToken) {
-        // Fallback default development session for immediate preview
-        const devToken = 'mock-test-token:73422394-8b34-423d-8577-ff1c3c40614c:personal_ca_test_step4@gmail.com';
-        setAuthToken(devToken);
-        setToken(devToken);
-        setUser({
-          id: '73422394-8b34-423d-8577-ff1c3c40614c',
-          email: 'personal_ca_test_step4@gmail.com',
-          role: 'USER',
-          full_name: 'Shivam Shukla',
-          business_type: 'individual_proprietor',
-        });
+        if (isDev) {
+          // Fallback default development session for immediate preview in local dev only
+          const devToken = 'mock-test-token:73422394-8b34-423d-8577-ff1c3c40614c:personal_ca_test_step4@gmail.com';
+          setAuthToken(devToken);
+          setToken(devToken);
+          setUser({
+            id: '73422394-8b34-423d-8577-ff1c3c40614c',
+            email: 'personal_ca_test_step4@gmail.com',
+            role: 'USER',
+            full_name: 'Shivam Shukla',
+            business_type: 'individual_proprietor',
+          });
+        } else {
+          // Production / Test: First-time visitor remains strictly unauthenticated
+          setToken(null);
+          setUser(null);
+        }
         setIsLoading(false);
         return;
       }
 
+      // 3. Legitimate authentication token exists (e.g. Supabase Auth JWT)
       setToken(storedToken);
       try {
         const profile = await authApi.getMe();
         setUser({
           id: profile.id,
-          email: 'personal_ca_test_step4@gmail.com',
+          email: (profile as Record<string, unknown>).email as string || '',
           role: profile.role,
           full_name: profile.full_name,
           business_type: profile.business_type,
         });
       } catch (e) {
-        // Keep existing token or set default
-        setUser({
-          id: '73422394-8b34-423d-8577-ff1c3c40614c',
-          email: 'personal_ca_test_step4@gmail.com',
-          role: 'USER',
-          full_name: 'Shivam Shukla',
-        });
+        if (!isDev) {
+          // In production: if token verification fails, clear stale token and remain unauthenticated
+          setAuthToken(null);
+          setToken(null);
+          setUser(null);
+        } else {
+          // Development fallback
+          setUser({
+            id: '73422394-8b34-423d-8577-ff1c3c40614c',
+            email: 'personal_ca_test_step4@gmail.com',
+            role: 'USER',
+            full_name: 'Shivam Shukla',
+          });
+        }
       } finally {
         setIsLoading(false);
       }
@@ -96,6 +137,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const setUserDirectly = (newUser: UserProfile, newToken: string) => {
+    if (process.env.NODE_ENV !== 'development' && newToken.startsWith('mock-test-token:')) {
+      console.warn('[Auth] Mock tokens are strictly rejected in production');
+      return;
+    }
     setAuthToken(newToken);
     setToken(newToken);
     setUser(newUser);
