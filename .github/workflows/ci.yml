@@ -34,14 +34,16 @@ jobs:
         run: npx tsx tests/api.test.ts
         env:
           NODE_ENV: test
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co' }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo' }}
           ENCRYPTION_SECRET_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
       - name: Run AI Layer Safety & Grounding Suite
         run: npx tsx tests/ai.test.ts
         env:
           NODE_ENV: test
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co' }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo' }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           ENCRYPTION_SECRET_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
@@ -49,12 +51,16 @@ jobs:
         run: npx tsx tests/step7_performance.test.ts
         env:
           NODE_ENV: test
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co' }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo' }}
           ENCRYPTION_SECRET_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
       - name: Run Hardened Security Audit Suite
         run: npx tsx tests/step8_security.test.ts
         env:
           NODE_ENV: test
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://pesvgxqpdeeyhjvqoaip.supabase.co' }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo' }}
           ENCRYPTION_SECRET_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
   frontend-quality-gate:
