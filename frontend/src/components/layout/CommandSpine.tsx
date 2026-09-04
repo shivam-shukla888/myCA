@@ -134,48 +134,61 @@ export function CommandSpine() {
         flexDirection: 'column',
         gap: '12px'
       }}>
-        {/* User Identity Box */}
-        <div style={{
-          background: 'var(--canvas-inset)',
-          padding: '10px 12px',
-          border: '1px solid var(--border-hairline)'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-            <span className="meta-tag" style={{ fontSize: '9px' }}>Entity</span>
-            <span className={`badge-signal ${user?.role === 'ADMIN' ? 'badge-amber' : 'badge-forest'}`}>
-              {user?.role || 'USER'}
-            </span>
-          </div>
-          <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--ink-primary)' }}>
-            {user?.full_name || 'Personal Account'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--ink-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {user?.email}
-          </div>
-        </div>
-
-        {/* Role Switcher for Testing (RBAC Demonstration - Development Only) */}
-        {process.env.NODE_ENV === 'development' && (
-          <button
-            onClick={toggleAdminRole}
-            className="instrument-btn instrument-btn-secondary"
-            style={{ width: '100%', justifyContent: 'center', fontSize: '11px' }}
+        {!user ? (
+          <Link
+            href="/login"
+            className="instrument-btn"
+            style={{ width: '100%', justifyContent: 'center', fontSize: '11px', textDecoration: 'none', padding: '10px' }}
           >
             <UserCheck size={13} />
-            Switch to {user?.role === 'ADMIN' ? 'Standard User' : 'Admin Role'}
-          </button>
-        )}
+            Sign In to Workspace
+          </Link>
+        ) : (
+          <>
+            {/* User Identity Box */}
+            <div style={{
+              background: 'var(--canvas-inset)',
+              padding: '10px 12px',
+              border: '1px solid var(--border-hairline)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span className="meta-tag" style={{ fontSize: '9px' }}>Entity</span>
+                <span className={`badge-signal ${user.role === 'ADMIN' ? 'badge-amber' : 'badge-forest'}`}>
+                  {user.role}
+                </span>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--ink-primary)' }}>
+                {user.full_name || 'Personal Account'}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--ink-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {user.email}
+              </div>
+            </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="meta-tag" style={{ fontSize: '9.5px' }}>FY 2025–26 (AY 2026–27)</span>
-          <button
-            onClick={logout}
-            title="Sign out"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-tertiary)' }}
-          >
-            <LogOut size={13} />
-          </button>
-        </div>
+            {/* Role Switcher for Testing (RBAC Demonstration - Development Only) */}
+            {process.env.NODE_ENV === 'development' && (
+              <button
+                onClick={toggleAdminRole}
+                className="instrument-btn instrument-btn-secondary"
+                style={{ width: '100%', justifyContent: 'center', fontSize: '11px' }}
+              >
+                <UserCheck size={13} />
+                Switch to {user.role === 'ADMIN' ? 'Standard User' : 'Admin Role'}
+              </button>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="meta-tag" style={{ fontSize: '9.5px' }}>FY 2025–26 (AY 2026–27)</span>
+              <button
+                onClick={logout}
+                title="Sign out"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-tertiary)' }}
+              >
+                <LogOut size={13} />
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </aside>
   );

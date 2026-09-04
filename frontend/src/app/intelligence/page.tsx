@@ -1,13 +1,16 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
+import { useAuth } from '../../context/AuthContext';
 import { chatApi, ChatResponse } from '../../lib/api';
 import { ConfidenceMeter } from '../../components/intelligence/ConfidenceMeter';
 import { EvidenceNode } from '../../components/intelligence/EvidenceNode';
 import { DisclaimerGate } from '../../components/intelligence/DisclaimerGate';
-import { Cpu, Send, Sparkles, AlertTriangle, ShieldCheck, Database, FileText } from 'lucide-react';
+import { Cpu, Send, Sparkles, AlertTriangle, ShieldCheck, Database, FileText, Lock } from 'lucide-react';
 
 export default function IntelligencePage() {
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ChatResponse | null>(null);
@@ -21,7 +24,7 @@ export default function IntelligencePage() {
     'Should I buy Reliance shares or invest in Tata Motors stock?',
   ];
 
-  const [error, setError] = useState<{ message: string; safeToRetry: boolean } | null>(null);
+  const [error, setError] = useState<{ message: string; safeToRetry: boolean; isAuthError?: boolean } | null>(null);
 
   async function handleExecute(inquiryText = query) {
     if (!inquiryText.trim() || loading) return;
@@ -35,9 +38,13 @@ export default function IntelligencePage() {
       setInquiryHistory((prev) => [{ query: inquiryText, response: res }, ...prev]);
       setQuery('');
     } catch (err: any) {
+      const isAuthError = err.statusCode === 401 || err.code?.includes('UNAUTHORIZED') || err.message?.toLowerCase().includes('authentication') || err.message?.toLowerCase().includes('unauthorized');
       setError({
-        message: err.message || 'The intelligence pipeline encountered an error during evaluation.',
+        message: isAuthError
+          ? 'Authentication required. Your session is unauthenticated or has expired.'
+          : (err.message || 'The intelligence pipeline encountered an error during evaluation.'),
         safeToRetry: true,
+        isAuthError,
       });
     } finally {
       setLoading(false);
@@ -61,7 +68,37 @@ export default function IntelligencePage() {
 
       <hr className="hairline-rule" style={{ margin: 0 }} />
 
-      {/* Query Formulation Console */}
+      {/* Guest Authentication Banner */}
+      {!user && (
+        <div style={{
+          padding: '16px 20px',
+          background: 'var(--canvas-surface)',
+          borderLeft: '4px solid var(--signal-amber)',
+          borderTop: '1px solid var(--border-hairline)',
+          borderRight: '1px solid var(--border-hairline)',
+          borderBottom: '1px solid var(--border-hairline)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '16px'
+        }}>
+          <div>
+            <div className="meta-tag" style={{ color: 'var(--signal-amber)', marginBottom: '4px' }}>
+              AUTHENTICATION REQUIRED
+            </div>
+            <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)' }}>
+              You are currently unauthenticated. Sign in to evaluate inquiries against your private ledger and tax documents.
+            </div>
+          </div>
+          <Link
+            href="/login"
+            className="instrument-btn"
+            style={{ padding: '8px 16px', fontSize: '11px', textDecoration: 'none', flexShrink: 0 }}
+          >
+            <Lock size={12} /> Sign In
+          </Link>
+        </div>
+      )}
       <div style={{
         background: 'var(--canvas-surface)',
         border: '1px solid var(--ink-primary)',
@@ -186,7 +223,17 @@ export default function IntelligencePage() {
             What happened: {error.message}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--ink-secondary)', lineHeight: 1.4 }}>
-            What you can do: Verify that your backend API service is running and accessible (or verify NEXT_PUBLIC_API_URL if deployed). The system does not save partial or ungrounded financial inferences.
+            {error.isAuthError ? (
+              <span>
+                Your session is unauthenticated. Please{' '}
+                <Link href="/login" style={{ color: 'var(--ink-primary)', fontWeight: 600, textDecoration: 'underline' }}>
+                  sign in to your account
+                </Link>{' '}
+                to access verified records and submit queries.
+              </span>
+            ) : (
+              'What you can do: Verify that your backend API service is running and accessible (or verify NEXT_PUBLIC_API_URL if deployed). The system does not save partial or ungrounded financial inferences.'
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
             <span className="badge-signal badge-forest">SAFE TO RETRY</span>
