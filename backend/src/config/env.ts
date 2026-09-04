@@ -34,6 +34,23 @@ if (isProduction && enableDevAuth) {
   throw new Error('FATAL SECURITY VIOLATION: Development authentication cannot be enabled in production environment. Failing closed.');
 }
 
+export function validateEncryptionConfig(isProd: boolean, key?: string): void {
+  const effectiveKey = key || '';
+  if (isProd) {
+    if (
+      !effectiveKey ||
+      effectiveKey === 'dev-insecure-key-replace-in-env' ||
+      effectiveKey === '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' ||
+      effectiveKey.length < 32
+    ) {
+      throw new Error('FATAL SECURITY VIOLATION: A secure, non-default ENCRYPTION_SECRET_KEY (minimum 32 characters or 64-hex string) is strictly required in production. Failing closed.');
+    }
+  }
+}
+
+const rawEncryptionKey = process.env.ENCRYPTION_SECRET_KEY || '';
+validateEncryptionConfig(isProduction, rawEncryptionKey);
+
 const geminiKey = process.env.GEMINI_API_KEY || '';
 const primaryKey = process.env.PRIMARY_AI_API_KEY || '';
 const groqKey = process.env.GROQ_API_KEY || '';
@@ -55,7 +72,7 @@ export const env: EnvConfig = {
   PRIMARY_AI_MODEL: process.env.PRIMARY_AI_MODEL || 'Meta-Llama-3.3-70B-Instruct',
   GROQ_API_KEY: groqKey,
   GROQ_MODEL: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
-  ENCRYPTION_SECRET_KEY: process.env.ENCRYPTION_SECRET_KEY || 'dev-insecure-key-replace-in-env',
+  ENCRYPTION_SECRET_KEY: isProduction ? rawEncryptionKey : (rawEncryptionKey || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
   ENABLE_DEV_AUTH: enableDevAuth,
   ALLOWED_REDIRECT_URLS: (process.env.ALLOWED_REDIRECT_URLS || 'http://localhost:3000,https://personal-ai-ca.vercel.app')

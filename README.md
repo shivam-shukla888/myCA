@@ -52,11 +52,12 @@ Designed to bridge the gap between complex tax regulations and daily financial d
       ┌──────────────────────────────┐                         ┌──────────────────────────────┐
       │     Database & Storage       │                         │   Multi-Tier AI Pipeline     │
       │   (Supabase PostgreSQL 15)   │                         │                              │
-      │  ├─ Strict RLS on auth.uid() │                         │  ├─ Tier 1: Google Gemini    │
-      │  ├─ AES-256-GCM Encrypted    │                         │  │          (gemini-2.5-flash│
-      │  ├─ HMAC Audit Ledger        │                         │  ├─ Tier 2: Groq / Llama-3.3 │
-      │  └─ 15m Signed Storage URLs  │                         │  └─ Tier 3: Deterministic    │
-      └──────────────────────────────┘                         │             Safety Mock      │
+      │  ├─ Strict RLS on auth.uid() │                         │  ├─ Tier 1: Groq             │
+      │  ├─ AES-256-GCM Encrypted    │                         │  │          (gpt-oss-120b)   │
+      │  ├─ HMAC Audit Ledger        │                         │  ├─ Tier 2: Google Gemini    │
+      │  └─ 15m Signed Storage URLs  │                         │  │          (gemini-2.5-flash│
+      └──────────────────────────────┘                         │  └─ Tier 3: MockAIProvider   │
+                                                               │             (dev/test only)  │
                                                                └──────────────────────────────┘
 ```
 

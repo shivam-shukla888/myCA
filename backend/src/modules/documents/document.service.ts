@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CreateDocumentInput, QueryDocumentInput } from './document.schema.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
+import { env } from '../../config/env.js';
 
 export interface DocumentRecord extends CreateDocumentInput {
   id: string;
@@ -16,6 +17,7 @@ export interface DocumentRecord extends CreateDocumentInput {
   upload_url?: string;
 }
 
+// In-memory store strictly for development/testing when running in offline/mock context
 const inMemoryDocuments = new Map<string, DocumentRecord>();
 
 export class DocumentService {
@@ -24,6 +26,7 @@ export class DocumentService {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }
 
+    const isProduction = env.NODE_ENV === 'production';
     const documentId = uuidv4();
 
     // Strict path traversal and filename validation
@@ -46,19 +49,20 @@ export class DocumentService {
       uploaded_at: now,
       created_at: now,
       updated_at: now,
-      upload_url: `https://mock-storage.local/upload/${storagePath}?token=mock_upload_token`,
     };
-
-    inMemoryDocuments.set(record.id, record);
 
     try {
       const supabase = getSupabaseAdminClient();
       
-      const { data: signedUpload } = await supabase.storage
+      const { data: signedUpload, error: uploadErr } = await supabase.storage
         .from('user-documents')
         .createSignedUploadUrl(storagePath);
 
-      if (signedUpload) {
+      if (uploadErr) {
+        if (isProduction) {
+          throw new AppError(`Failed to create signed upload URL: ${uploadErr.message}`, 500, 'STORAGE_UPLOAD_URL_FAILED');
+        }
+      } else if (signedUpload) {
         record.upload_url = signedUpload.signedUrl;
       }
 
@@ -79,16 +83,34 @@ export class DocumentService {
         .select()
         .single();
 
-      if (!error && data) {
-        return {
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Document metadata persistence failed: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+        }
+      } else if (data) {
+        const saved = {
           ...data,
           upload_url: record.upload_url,
         } as DocumentRecord;
+        if (!isProduction) {
+          inMemoryDocuments.set(record.id, saved);
+        }
+        return saved;
       }
     } catch (err) {
-      // Fallback
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Document creation failed in production database/storage', 500, 'DATABASE_PERSISTENCE_FAILED');
+      }
     }
 
+    if (isProduction) {
+      throw new AppError('Document creation failed in production environment', 500, 'DATABASE_PERSISTENCE_FAILED');
+    }
+
+    // Development/test mock fallback only
+    record.upload_url = record.upload_url || `https://mock-storage.local/upload/${storagePath}?token=mock_upload_token`;
+    inMemoryDocuments.set(record.id, record);
     return record;
   }
 
@@ -97,6 +119,7 @@ export class DocumentService {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }
 
+    const isProduction = env.NODE_ENV === 'production';
     const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
     const offset = Math.max(Number(query.offset) || 0, 0);
 
@@ -110,13 +133,25 @@ export class DocumentService {
       dbQuery = dbQuery.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
 
       const { data, error, count } = await dbQuery;
-      if (!error && data && data.length > 0) {
-        return { documents: data as DocumentRecord[], total: count || data.length };
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Failed to list documents: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
+        }
+      } else if (data) {
+        return { documents: data as DocumentRecord[], total: count !== null && count !== undefined ? count : data.length };
       }
     } catch (err) {
-      // Fallback
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Document query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+      }
     }
 
+    if (isProduction) {
+      throw new AppError('Document query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+    }
+
+    // Filter in-memory by user_id (development/test mode only)
     const userDocs = Array.from(inMemoryDocuments.values()).filter((d) => d.user_id === userId);
     let filtered = userDocs;
     if (query.document_type) filtered = filtered.filter((d) => d.document_type === query.document_type);
@@ -133,27 +168,43 @@ export class DocumentService {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }
 
+    const isProduction = env.NODE_ENV === 'production';
+
     try {
       const supabase = getSupabaseAdminClient();
-      const { data, error } = await supabase
+      
+      // First check if document exists under ANY user to enforce strict IDOR 403 vs 404
+      const { data: anyDoc } = await supabase
         .from('documents')
         .select('*')
         .eq('id', id)
-        .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      if (!error && data) {
+      if (anyDoc) {
+        if (anyDoc.user_id !== userId) {
+          throw new AppError('Access denied: You do not have permission to view this document', 403, 'FORBIDDEN');
+        }
+
         const { data: signedDownload } = await supabase.storage
           .from('user-documents')
-          .createSignedUrl(data.storage_path, 900);
+          .createSignedUrl(anyDoc.storage_path, 900);
 
         return {
-          ...data,
+          ...anyDoc,
           download_url: signedDownload?.signedUrl,
         } as DocumentRecord;
+      } else if (isProduction) {
+        throw new AppError('Document not found', 404, 'DOCUMENT_NOT_FOUND');
       }
     } catch (err) {
-      // Fallback
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Document fetch failed in production database', 500, 'DATABASE_QUERY_FAILED');
+      }
+    }
+
+    if (isProduction) {
+      throw new AppError('Document not found', 404, 'DOCUMENT_NOT_FOUND');
     }
 
     const record = inMemoryDocuments.get(id);
@@ -172,18 +223,63 @@ export class DocumentService {
   }
 
   async deleteDocument(userId: string, id: string): Promise<{ success: boolean; id: string }> {
-    await this.getDocumentById(userId, id);
+    if (!userId) {
+      throw new AppError('User context is required', 401, 'UNAUTHORIZED');
+    }
 
-    inMemoryDocuments.delete(id);
+    const isProduction = env.NODE_ENV === 'production';
+    const existing = await this.getDocumentById(userId, id);
+
+    // Strict ownership verification
+    if (existing.user_id !== userId) {
+      throw new AppError('Access denied: You do not have permission to delete this document', 403, 'FORBIDDEN');
+    }
+
+    // Prevent storage path manipulation (must start with userId/)
+    if (!existing.storage_path.startsWith(`${userId}/`)) {
+      throw new AppError('Security violation: Storage path does not match user namespace', 403, 'FORBIDDEN');
+    }
 
     try {
       const supabase = getSupabaseAdminClient();
-      await supabase.storage.from('user-documents').remove([`mock-path`]);
-      await supabase.from('documents').delete().eq('id', id).eq('user_id', userId);
+      
+      // Delete the actual storage path
+      const { error: storageErr } = await supabase.storage
+        .from('user-documents')
+        .remove([existing.storage_path]);
+
+      if (storageErr && isProduction) {
+        throw new AppError(`Failed to delete document from storage: ${storageErr.message}`, 500, 'STORAGE_DELETION_FAILED');
+      }
+
+      // Delete database metadata
+      const { error: dbErr } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId);
+
+      if (dbErr && isProduction) {
+        throw new AppError(`Failed to delete document record: ${dbErr.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+      }
+
+      if (!isProduction) {
+        inMemoryDocuments.delete(id);
+      }
+
+      return { success: true, id };
     } catch (err) {
-      // Fallback
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Document deletion failed in production environment', 500, 'DATABASE_PERSISTENCE_FAILED');
+      }
     }
 
+    if (isProduction) {
+      throw new AppError('Document deletion failed in production environment', 500, 'DATABASE_PERSISTENCE_FAILED');
+    }
+
+    inMemoryDocuments.delete(id);
     return { success: true, id };
   }
 }

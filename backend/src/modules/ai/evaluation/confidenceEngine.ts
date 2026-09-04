@@ -18,9 +18,9 @@ export class ConfidenceEngine {
       score = Math.min(score, 0.65);
     }
 
-    // Rule 3: High-risk or complex tax questions require verified domain grounding
-    if (response.risk_level === 'HIGH' && response.evidence.length === 0) {
-      score = Math.min(score, 0.50);
+    // Rule 3: High-risk, critical, or unknown-risk questions require verified domain grounding
+    if ((response.risk_level === 'HIGH' || response.risk_level === 'CRITICAL' || response.risk_level === 'UNKNOWN') && response.evidence.length === 0) {
+      score = Math.min(score, 0.40);
     }
 
     // Keep within bounds [0.0, 1.0]

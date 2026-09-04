@@ -15,7 +15,7 @@ export const INTENT_CATEGORIES = [
 
 export type IntentCategory = (typeof INTENT_CATEGORIES)[number];
 
-export const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+export const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'UNKNOWN'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
 export const evidenceSourceSchema = z.object({

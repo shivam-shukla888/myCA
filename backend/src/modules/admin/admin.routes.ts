@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
+import { verifyAuditEntry } from '../ai/audit/auditLogger.js';
 
 const router = Router();
 
@@ -17,8 +18,13 @@ router.get('/audit-logs', async (req: Request, res: Response, next: NextFunction
       .order('created_at', { ascending: false })
       .limit(50);
 
+    const logsWithVerification = (data || []).map((entry: any) => ({
+      ...entry,
+      is_signature_valid: entry.hmac_signature ? verifyAuditEntry(entry) : false,
+    }));
+
     res.status(200).json({
-      data: data || [],
+      data: logsWithVerification,
       authorized_admin: req.user?.email || req.user?.id,
       timestamp: new Date().toISOString(),
     });

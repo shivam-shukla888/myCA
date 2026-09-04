@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CreateTransactionInput, UpdateTransactionInput, QueryTransactionInput } from './transaction.schema.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
+import { env } from '../../config/env.js';
 
 export interface TransactionRecord extends CreateTransactionInput {
   id: string;
@@ -10,7 +11,7 @@ export interface TransactionRecord extends CreateTransactionInput {
   updated_at: string;
 }
 
-// In-memory store for development/testing when running in offline/mock context
+// In-memory store strictly for development/testing when running in offline/mock context
 const inMemoryTransactions = new Map<string, TransactionRecord>();
 
 const TAX_SAVING_CATEGORIES = new Set([
@@ -53,6 +54,7 @@ export class TransactionService {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }
 
+    const isProduction = env.NODE_ENV === 'production';
     const enriched = this.applyBusinessRules(input);
     const now = new Date().toISOString();
     const id = uuidv4();
@@ -65,10 +67,7 @@ export class TransactionService {
       updated_at: now,
     };
 
-    // Always maintain in-memory store for dev/testing consistency
-    inMemoryTransactions.set(record.id, record);
-
-    // Try Supabase Admin persistence if configured
+    // Try Supabase Admin persistence
     try {
       const supabase = getSupabaseAdminClient();
       const { data, error } = await supabase
@@ -95,13 +94,29 @@ export class TransactionService {
         .select()
         .single();
 
-      if (!error && data) {
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Transaction persistence failed: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+        }
+      } else if (data) {
+        if (!isProduction) {
+          inMemoryTransactions.set(record.id, data as TransactionRecord);
+        }
         return data as TransactionRecord;
       }
     } catch (err) {
-      // Fallback to in-memory record
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Transaction persistence failed in production database', 500, 'DATABASE_PERSISTENCE_FAILED');
+      }
     }
 
+    if (isProduction) {
+      throw new AppError('Transaction database persistence failed in production', 500, 'DATABASE_PERSISTENCE_FAILED');
+    }
+
+    // Only allow in-memory storage in development/test mode
+    inMemoryTransactions.set(record.id, record);
     return record;
   }
 
@@ -112,6 +127,7 @@ export class TransactionService {
 
     const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
     const offset = Math.max(Number(query.offset) || 0, 0);
+    const isProduction = env.NODE_ENV === 'production';
 
     // Try Supabase first
     try {
@@ -127,14 +143,25 @@ export class TransactionService {
       dbQuery = dbQuery.order('date', { ascending: false }).range(offset, offset + limit - 1);
 
       const { data, error, count } = await dbQuery;
-      if (!error && data && data.length > 0) {
-        return { transactions: data as TransactionRecord[], total: count || data.length };
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Failed to retrieve transactions: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
+        }
+      } else if (data) {
+        return { transactions: data as TransactionRecord[], total: count !== null && count !== undefined ? count : data.length };
       }
     } catch (err) {
-      // Fallback to in-memory
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Transaction query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+      }
     }
 
-    // Filter in-memory by user_id
+    if (isProduction) {
+      throw new AppError('Transaction query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+    }
+
+    // Filter in-memory by user_id (development/test mode only)
     const userRecords = Array.from(inMemoryTransactions.values()).filter((t) => t.user_id === userId);
 
     let filtered = userRecords;
@@ -155,6 +182,8 @@ export class TransactionService {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }
 
+    const isProduction = env.NODE_ENV === 'production';
+
     // Try Supabase first
     try {
       const supabase = getSupabaseAdminClient();
@@ -163,13 +192,26 @@ export class TransactionService {
         .select('*')
         .eq('id', id)
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      if (!error && data) {
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Failed to fetch transaction: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
+        }
+      } else if (data) {
         return data as TransactionRecord;
+      } else if (isProduction) {
+        throw new AppError('Transaction not found', 404, 'TRANSACTION_NOT_FOUND');
       }
     } catch (err) {
-      // Fallback
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Transaction query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+      }
+    }
+
+    if (isProduction) {
+      throw new AppError('Transaction not found', 404, 'TRANSACTION_NOT_FOUND');
     }
 
     const record = inMemoryTransactions.get(id);
@@ -186,6 +228,7 @@ export class TransactionService {
   }
 
   async updateTransaction(userId: string, id: string, input: UpdateTransactionInput): Promise<TransactionRecord> {
+    const isProduction = env.NODE_ENV === 'production';
     const existing = await this.getTransactionById(userId, id);
 
     const newAmount = input.amount !== undefined ? input.amount : existing.amount;
@@ -194,6 +237,40 @@ export class TransactionService {
 
     if (isGst && newGst !== undefined && newGst > newAmount) {
       throw new AppError('GST amount cannot exceed transaction amount', 400, 'VALIDATION_ERROR');
+    }
+
+    try {
+      const supabase = getSupabaseAdminClient();
+      const { data, error } = await supabase
+        .from('transactions')
+        .update({
+          ...input,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Failed to update transaction: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+        }
+      } else if (data) {
+        if (!isProduction) {
+          inMemoryTransactions.set(id, data as TransactionRecord);
+        }
+        return data as TransactionRecord;
+      }
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Transaction update failed in production database', 500, 'DATABASE_PERSISTENCE_FAILED');
+      }
+    }
+
+    if (isProduction) {
+      throw new AppError('Transaction update failed in production database', 500, 'DATABASE_PERSISTENCE_FAILED');
     }
 
     const updated: TransactionRecord = {
@@ -205,39 +282,38 @@ export class TransactionService {
     };
 
     inMemoryTransactions.set(id, updated);
-
-    try {
-      const supabase = getSupabaseAdminClient();
-      const { data, error } = await supabase
-        .from('transactions')
-        .update(input)
-        .eq('id', id)
-        .eq('user_id', userId)
-        .select()
-        .single();
-
-      if (!error && data) {
-        return data as TransactionRecord;
-      }
-    } catch (err) {
-      // Fallback
-    }
-
     return updated;
   }
 
   async deleteTransaction(userId: string, id: string): Promise<{ success: boolean; id: string }> {
+    const isProduction = env.NODE_ENV === 'production';
     await this.getTransactionById(userId, id);
-
-    inMemoryTransactions.delete(id);
 
     try {
       const supabase = getSupabaseAdminClient();
-      await supabase.from('transactions').delete().eq('id', id).eq('user_id', userId);
+      const { error } = await supabase.from('transactions').delete().eq('id', id).eq('user_id', userId);
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Failed to delete transaction: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+        }
+      } else {
+        if (!isProduction) {
+          inMemoryTransactions.delete(id);
+        }
+        return { success: true, id };
+      }
     } catch (err) {
-      // Fallback
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Transaction deletion failed in production database', 500, 'DATABASE_PERSISTENCE_FAILED');
+      }
     }
 
+    if (isProduction) {
+      throw new AppError('Transaction deletion failed in production database', 500, 'DATABASE_PERSISTENCE_FAILED');
+    }
+
+    inMemoryTransactions.delete(id);
     return { success: true, id };
   }
 }

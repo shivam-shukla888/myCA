@@ -15,6 +15,7 @@ import { auditLogger } from './audit/auditLogger.js';
 import { AIStructuredResponse } from './schemas/aiResponse.schema.js';
 import { env } from '../../config/env.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
+import { AppError } from '../../middleware/errorHandler.js';
 
 export interface ProcessChatOptions {
   conversationId?: string;
@@ -55,13 +56,21 @@ export class AIService {
 
     // DETERMINISTIC PROVIDER SELECTION:
     // 1. If GROQ_API_KEY is configured and valid, Groq MUST be selected as Tier 1 Primary (with Gemini as failover if configured).
-    // 2. If Groq is not configured, check if Gemini alone is configured.
-    // 3. If neither external provider is available, use MockAIProvider for deterministic offline/test mode.
+    // 2. If Groq is not configured, check if Gemini alone is configured (Tier 2).
+    // 3. MockAIProvider is strictly for development/test mode (Tier 3).
+    // In production, if neither external provider is configured, fail closed.
     if (this.groqProvider.isAvailable()) {
-      // Groq is available: use fallbackProvider (Groq primary -> Gemini failover if Gemini is configured)
       this.activeProvider = this.fallbackProvider;
     } else if (this.geminiProvider.isAvailable()) {
       this.activeProvider = this.geminiProvider;
+    } else if (env.NODE_ENV === 'production') {
+      this.activeProvider = {
+        getModelName: () => 'unconfigured-provider',
+        isAvailable: () => false,
+        generateStructuredResponse: async () => {
+          throw new AppError('No AI provider configured in production environment. Failing closed.', 503, 'AI_PROVIDER_UNAVAILABLE');
+        },
+      };
     } else {
       this.activeProvider = this.mockProvider;
     }
@@ -154,10 +163,11 @@ export class AIService {
       validatedResponse.disclaimer = mandatoryDisclaimer.text;
     }
 
-    // 9. Human Review Gate
+    // 9. Human Review Gate: Mandatory for HIGH, CRITICAL, UNKNOWN risk or low confidence
     if (
       validatedResponse.risk_level === 'HIGH' ||
       validatedResponse.risk_level === 'CRITICAL' ||
+      validatedResponse.risk_level === 'UNKNOWN' ||
       validatedResponse.confidence_score < 0.60
     ) {
       validatedResponse.human_review_required = true;

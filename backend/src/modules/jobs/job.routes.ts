@@ -1,11 +1,27 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '../../middleware/auth';
-import { jobQueue } from './jobQueue';
+import { requireAuth } from '../../middleware/auth.js';
+import { jobQueue } from './jobQueue.js';
+import { env } from '../../config/env.js';
 
 const router = Router();
 
+// Production guard: in-memory queue is not durable and strictly disabled in production
+router.use((req: Request, res: Response, next) => {
+  if (env.NODE_ENV === 'production') {
+    return res.status(503).json({
+      error: {
+        code: 'QUEUE_UNAVAILABLE_IN_PRODUCTION',
+        message: 'Durable distributed background job queue is not configured for production environment.',
+      },
+    });
+  }
+  next();
+});
+
+router.use(requireAuth);
+
 // Create asynchronous job
-router.post('/create', requireAuth, async (req: Request, res: Response) => {
+router.post('/create', async (req: Request, res: Response) => {
   const userId = req.user!.id;
   const { type, data } = req.body;
 
@@ -18,16 +34,25 @@ router.post('/create', requireAuth, async (req: Request, res: Response) => {
     });
   }
 
-  const job = jobQueue.createJob(userId, type, data || {});
-  return res.status(202).json({
-    data: {
-      job_id: job.id,
-      status: job.status,
-      type: job.type,
-      created_at: job.created_at,
-      message: 'Job submitted for asynchronous background processing.',
-    },
-  });
+  try {
+    const job = jobQueue.createJob(userId, type, data || {});
+    return res.status(202).json({
+      data: {
+        job_id: job.id,
+        status: job.status,
+        type: job.type,
+        created_at: job.created_at,
+        message: 'Job submitted for asynchronous background processing.',
+      },
+    });
+  } catch (err: any) {
+    return res.status(503).json({
+      error: {
+        code: 'QUEUE_ERROR',
+        message: err.message,
+      },
+    });
+  }
 });
 
 // Retrieve job status & results

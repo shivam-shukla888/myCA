@@ -131,12 +131,12 @@ export function classifyIntent(query: string): ClassificationResult {
     }
   }
 
-  // Fallback
+  // Fallback: Unclassified queries must NOT silently become LOW risk
   return {
     intent: 'GENERAL_FINANCE',
-    risk_level: 'LOW',
+    risk_level: 'UNKNOWN',
     is_personalized_advice_request: false,
     is_statutory_filing_request: false,
-    reasons: ['General personal finance query'],
+    reasons: ['Unclassified financial query; assigned UNKNOWN risk level'],
   };
 }

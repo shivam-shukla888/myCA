@@ -3,6 +3,45 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { env } from '../../config/env.js';
 import { getSupabaseClient, getSupabaseAdminClient } from '../../config/supabase.js';
 
+export function isRedirectUrlAllowed(targetUrl: string, allowedUrls: string[]): boolean {
+  try {
+    const parsedTarget = new URL(targetUrl);
+
+    // Protocol must strictly be http: (for localhost/dev only) or https:
+    if (parsedTarget.protocol !== 'https:' && !(parsedTarget.protocol === 'http:' && (parsedTarget.hostname === 'localhost' || parsedTarget.hostname === '127.0.0.1'))) {
+      return false;
+    }
+
+    // Disallow userinfo credentials in URL to avoid URL parsing confusion
+    if (parsedTarget.username || parsedTarget.password) {
+      return false;
+    }
+
+    return allowedUrls.some((allowed) => {
+      try {
+        const parsedAllowed = new URL(allowed);
+        // Exact origin match: protocol + hostname + port
+        if (parsedTarget.origin !== parsedAllowed.origin) {
+          return false;
+        }
+
+        const allowedPath = parsedAllowed.pathname.replace(/\/+$/, '') || '/';
+        const targetPath = parsedTarget.pathname.replace(/\/+$/, '') || '/';
+
+        if (allowedPath === '/') {
+          return true;
+        }
+
+        return targetPath === allowedPath || targetPath.startsWith(`${allowedPath}/`);
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
 export class AuthService {
   /**
    * Register a new user using official Supabase Auth.
@@ -100,20 +139,18 @@ export class AuthService {
   }
 
   /**
-   * Send magic link with open-redirect protection.
+   * Send magic link with strict open-redirect protection.
    */
   async sendMagicLink(input: MagicLinkInput) {
     let redirectTo = env.ALLOWED_REDIRECT_URLS[0];
 
-    // Validate redirect URL against allowlist to prevent open redirect vulnerabilities
+    // Validate redirect URL against parsed origin allowlist to eliminate open redirect bypasses
     if (input.redirect_to) {
-      const isAllowed = env.ALLOWED_REDIRECT_URLS.some((allowed) =>
-        input.redirect_to!.startsWith(allowed)
-      );
+      const isAllowed = isRedirectUrlAllowed(input.redirect_to, env.ALLOWED_REDIRECT_URLS);
 
       if (!isAllowed) {
         throw new AppError(
-          `Redirect URL not permitted. Must start with one of: ${env.ALLOWED_REDIRECT_URLS.join(', ')}`,
+          `Redirect URL not permitted. Must match allowed origins: ${env.ALLOWED_REDIRECT_URLS.join(', ')}`,
           400,
           'AUTH_INVALID_REDIRECT_URL'
         );

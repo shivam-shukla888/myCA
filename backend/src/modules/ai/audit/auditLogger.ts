@@ -45,7 +45,13 @@ export function buildAuditCanonicalString(entry: {
  * Generate HMAC-SHA256 signature using server secret key
  */
 export function generateAuditSignature(canonicalString: string): string {
-  const secret = env.ENCRYPTION_SECRET_KEY || 'server-audit-secret-key-default-salt';
+  const secret = env.ENCRYPTION_SECRET_KEY;
+  if (!secret) {
+    if (env.NODE_ENV === 'production') {
+      throw new Error('FATAL: Production encryption key is missing; cannot generate audit HMAC signature.');
+    }
+    return crypto.createHmac('sha256', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef').update(canonicalString).digest('hex');
+  }
   return crypto.createHmac('sha256', secret).update(canonicalString).digest('hex');
 }
 
@@ -132,9 +138,12 @@ export class AuditLogger {
         disclaimer_text: entry.disclaimer_text || null,
         reviewed_by_human: false,
         created_at: entry.created_at,
+        hmac_signature: entry.hmac_signature,
       });
     } catch (e) {
-      // Fallback
+      if (env.NODE_ENV === 'production') {
+        console.error('[AUDIT ERROR] Failed to persist tamper-evident audit log in production:', e);
+      }
     }
 
     return entry;

@@ -7,7 +7,13 @@ const IV_LENGTH = 12; // Standard 96-bit IV for AES-GCM
 const AUTH_TAG_LENGTH = 16; // 128-bit authentication tag
 
 function getSecretKey(): Buffer {
-  const rawKey = env.ENCRYPTION_SECRET_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const rawKey = env.ENCRYPTION_SECRET_KEY;
+  if (!rawKey) {
+    if (env.NODE_ENV === 'production') {
+      throw new AppError('Encryption secret key missing or unconfigured in production', 500, 'CRITICAL_SECURITY_KEY_MISSING');
+    }
+    return Buffer.from('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 'hex');
+  }
   if (rawKey.length === 64) {
     return Buffer.from(rawKey, 'hex');
   }

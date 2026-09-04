@@ -166,16 +166,16 @@ You MUST output ONLY a single valid JSON object strictly matching this schema:
       copy.intent = 'GENERAL_FINANCE';
     }
 
-    // 2. Normalize risk_level
+    // 2. Normalize risk_level — unknown, malformed, or missing risk must NEVER become LOW
     if (typeof copy.risk_level === 'string') {
       const upperRisk = copy.risk_level.toUpperCase();
       if (RISK_LEVELS.includes(upperRisk as RiskLevel)) {
         copy.risk_level = upperRisk;
       } else {
-        copy.risk_level = 'LOW';
+        copy.risk_level = 'UNKNOWN';
       }
     } else {
-      copy.risk_level = 'LOW';
+      copy.risk_level = 'UNKNOWN';
     }
 
     // 3. Normalize evidence to array of objects

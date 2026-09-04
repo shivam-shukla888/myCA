@@ -80,7 +80,7 @@ export function createApp(): Express {
   app.use('/api/v1/documents', standardApiRateLimiter, requireAuth, documentRoutes);
   app.use('/api/v1/chat', aiRateLimiter, requireAuth, chatRoutes);
   app.use('/api/v1/reports', standardApiRateLimiter, requireAuth, reportRoutes);
-  app.use('/api/v1/jobs', standardApiRateLimiter, requireAuth, jobRoutes);
+  app.use('/api/v1/jobs', standardApiRateLimiter, jobRoutes);
 
   // Admin APIs (requires valid Supabase JWT + ADMIN role)
   app.use('/api/v1/admin', requireAuth, adminRoutes);
