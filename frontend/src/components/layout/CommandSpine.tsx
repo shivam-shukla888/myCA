@@ -4,11 +4,12 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
-import { Compass, BookOpen, FileText, Cpu, FileCheck, ShieldAlert, LogOut, UserCheck } from 'lucide-react';
+import { Compass, BookOpen, Target, FileText, Cpu, FileCheck, ShieldAlert, LogOut, UserCheck } from 'lucide-react';
 
 export const MODES = [
   { id: 'surface', label: 'SURFACE', href: '/', hint: 'Financial terrain & positions', icon: Compass },
   { id: 'ledger', label: 'LEDGER', href: '/ledger', hint: 'Temporal event stream', icon: BookOpen },
+  { id: 'plan', label: 'PLAN', href: '/plan', hint: 'Surplus allocation & freedom', icon: Target },
   { id: 'vault', label: 'VAULT', href: '/vault', hint: 'Evidence & documents archive', icon: FileText },
   { id: 'intelligence', label: 'INTELLIGENCE', href: '/intelligence', hint: 'Analytical decision desk', icon: Cpu },
   { id: 'statements', label: 'STATEMENTS', href: '/statements', hint: 'Fiscal reports & filings', icon: FileCheck },

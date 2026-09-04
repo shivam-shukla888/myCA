@@ -346,3 +346,137 @@ export const adminApi = {
     >('/admin/audit-logs');
   },
 };
+
+// 7. Allocation & Financial Freedom APIs
+export interface FinancialProfile {
+  user_id: string;
+  age?: number;
+  monthly_income: number;
+  existing_liquid_savings: number;
+  existing_investments: number;
+  monthly_essential_expenses: number;
+  monthly_debt_obligations: number;
+  dependents: number;
+  has_health_insurance: boolean;
+  has_life_insurance: boolean;
+  emergency_fund_target_months: number;
+  target_retirement_age?: number;
+  desired_monthly_lifestyle_income: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinancialGoal {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string;
+  goal_type: 'savings' | 'investment' | 'tax_planning' | 'debt_reduction' | 'emergency_fund' | 'retirement' | 'custom';
+  target_amount: number;
+  current_amount: number;
+  currency: string;
+  target_date?: string;
+  priority: 'low' | 'medium' | 'high';
+  status: 'active' | 'completed' | 'paused' | 'abandoned';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmergencyFundCalculation {
+  essential_monthly_expenses: number;
+  target_months: number;
+  emergency_fund_target: number;
+  existing_liquid_savings: number;
+  emergency_fund_gap: number;
+  coverage_months: number;
+  is_complete: boolean;
+}
+
+export interface AllocationBuckets {
+  emergency_fund: number;
+  goals: number;
+  long_term_wealth: number;
+  flexible_buffer: number;
+  total_allocated: number;
+}
+
+export interface MonthlyAllocationPlan {
+  id: string;
+  user_id: string;
+  month: string;
+  monthly_income: number;
+  monthly_expenses: number;
+  monthly_surplus: number;
+  is_deficit: boolean;
+  emergency_fund: EmergencyFundCalculation;
+  allocations: AllocationBuckets;
+  explanation: {
+    primary_summary: string;
+    priority_order: string[];
+    emergency_fund_rationale: string;
+    goals_rationale: string;
+    long_term_wealth_rationale: string;
+    buffer_rationale: string;
+    deficit_pressure_analysis?: {
+      spending_pressure: string;
+      essential_expense_ratio: number;
+      debt_obligation_ratio: number;
+      recommendation: string;
+    };
+  };
+  financial_freedom: {
+    current_savings_investments: number;
+    monthly_surplus: number;
+    emergency_fund_progress_pct: number;
+    target_corpus_status: string;
+    desired_monthly_lifestyle_income: number;
+    target_age: number | null;
+    current_age: number | null;
+  };
+  created_at: string;
+  updated_at: string;
+}
+
+export const allocationApi = {
+  getProfile: async () => {
+    return request<FinancialProfile | null>('/allocation/profile');
+  },
+  saveProfile: async (data: Partial<FinancialProfile>) => {
+    return request<FinancialProfile>('/allocation/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+  listGoals: async () => {
+    return request<FinancialGoal[]>('/allocation/goals');
+  },
+  createGoal: async (data: Partial<FinancialGoal>) => {
+    return request<FinancialGoal>('/allocation/goals', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  updateGoal: async (id: string, data: Partial<FinancialGoal>) => {
+    return request<FinancialGoal>(`/allocation/goals/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+  deleteGoal: async (id: string) => {
+    return request<{ success: boolean; id: string }>(`/allocation/goals/${id}`, {
+      method: 'DELETE',
+    });
+  },
+  generatePlan: async (month: string) => {
+    return request<MonthlyAllocationPlan>('/allocation/plans/generate', {
+      method: 'POST',
+      body: JSON.stringify({ month }),
+    });
+  },
+  getPlanForMonth: async (month: string) => {
+    return request<MonthlyAllocationPlan>(`/allocation/plans/${month}`);
+  },
+  listPlanHistory: async () => {
+    return request<MonthlyAllocationPlan[]>('/allocation/plans/history');
+  },
+};
