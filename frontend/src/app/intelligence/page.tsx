@@ -186,7 +186,7 @@ export default function IntelligencePage() {
             What happened: {error.message}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--ink-secondary)', lineHeight: 1.4 }}>
-            What you can do: Verify your backend port 4000 connection or rephrase the query. The system does not save partial or ungrounded financial inferences.
+            What you can do: Verify that your backend API service is running and accessible (or verify NEXT_PUBLIC_API_URL if deployed). The system does not save partial or ungrounded financial inferences.
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
             <span className="badge-signal badge-forest">SAFE TO RETRY</span>

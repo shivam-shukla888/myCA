@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
+    "dev": "tsx src/server.ts",
     "start": "node dist/server.js",
     "test": "set NODE_ENV=test && set ENABLE_DEV_AUTH=true && tsx tests/api.test.ts",
     "test:auth": "tsx tests/api.test.ts",

@@ -41,10 +41,11 @@ export function createApp(): Express {
     })
   );
 
-  // Strict CORS policy: Reject wildcard '*' in authenticated production environments
+  // Strict CORS policy: Reject wildcard '*' in authenticated production environments; support multiple origins
+  const parsedOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
   const corsOrigin = env.NODE_ENV === 'production' && env.CORS_ORIGIN === '*'
     ? false
-    : env.CORS_ORIGIN;
+    : parsedOrigins.length === 1 ? parsedOrigins[0] : parsedOrigins;
 
   app.use(cors({ origin: corsOrigin, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
