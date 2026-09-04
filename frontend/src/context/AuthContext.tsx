@@ -98,7 +98,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setToken(null);
           setUser(null);
         } else {
-          // Development fallback
+          // Development fallback: clear expired token and use valid devToken
+          const devToken = 'mock-test-token:73422394-8b34-423d-8577-ff1c3c40614c:personal_ca_test_step4@gmail.com';
+          setAuthToken(devToken);
+          setToken(devToken);
           setUser({
             id: '73422394-8b34-423d-8577-ff1c3c40614c',
             email: 'personal_ca_test_step4@gmail.com',
