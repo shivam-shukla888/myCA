@@ -480,3 +480,87 @@ export const allocationApi = {
     return request<MonthlyAllocationPlan[]>('/allocation/plans/history');
   },
 };
+
+// 8. Financial Freedom Calculator APIs
+export interface FreedomScenarioResult {
+  scenario_name: 'conservative' | 'base' | 'optimistic';
+  expected_return_pct: number;
+  inflation_rate_pct: number;
+  withdrawal_rate_pct: number;
+  future_monthly_lifestyle_need: number;
+  future_annual_lifestyle_need: number;
+  indicative_target_corpus: number;
+  initial_investable_wealth: number;
+  projected_wealth_at_target_age: number;
+  funding_gap: number;
+  funding_surplus: number;
+  required_monthly_contribution: number;
+  current_monthly_contribution: number;
+  status: 'Ahead of Target' | 'On Track' | 'Behind Target';
+  explanation: string;
+}
+
+export interface FreedomAnalysisResponse {
+  current_age: number;
+  target_age: number;
+  years_to_freedom: number;
+  months_to_freedom: number;
+  current_monthly_surplus: number;
+  existing_liquid_savings: number;
+  existing_investments: number;
+  emergency_fund_target: number;
+  emergency_fund_reserve: number;
+  initial_investable_wealth: number;
+  active_scenario_name: 'conservative' | 'base' | 'optimistic';
+  active_scenario: FreedomScenarioResult;
+  scenarios: {
+    conservative: FreedomScenarioResult;
+    base: FreedomScenarioResult;
+    optimistic: FreedomScenarioResult;
+  };
+  formula_transparency: {
+    future_expense_formula: string;
+    target_corpus_formula: string;
+    future_wealth_formula: string;
+    required_contribution_formula: string;
+  };
+  assumptions_disclaimer: string;
+}
+
+export interface FreedomSimulationInput {
+  current_age?: number;
+  target_age?: number;
+  desired_monthly_lifestyle_income?: number;
+  monthly_contribution?: number;
+  existing_liquid_savings?: number;
+  existing_investments?: number;
+  emergency_fund_target?: number;
+  inflation_rate?: number;
+  expected_return?: number;
+  withdrawal_rate?: number;
+  scenario?: 'conservative' | 'base' | 'optimistic';
+}
+
+export const freedomApi = {
+  getStatus: async () => {
+    return request<FreedomAnalysisResponse>('/freedom/status');
+  },
+  simulate: async (data: FreedomSimulationInput) => {
+    return request<FreedomAnalysisResponse>('/freedom/simulate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  saveAssumptions: async (data: {
+    planning_inflation_rate: number;
+    planning_expected_return: number;
+    planning_withdrawal_rate: number;
+    planning_scenario: 'conservative' | 'base' | 'optimistic';
+  }) => {
+    return request<{ message: string; profile: any }>('/freedom/assumptions', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+};
+

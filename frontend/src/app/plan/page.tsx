@@ -3,11 +3,15 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   allocationApi,
+  freedomApi,
   FinancialProfile,
   FinancialGoal,
   MonthlyAllocationPlan,
+  FreedomAnalysisResponse,
+  FreedomScenarioResult,
 } from '../../lib/api';
 import {
+  Sliders,
   ShieldAlert,
   ShieldCheck,
   Target,
@@ -56,6 +60,21 @@ export default function PlanPage() {
   const [formTargetMonths, setFormTargetMonths] = useState('6');
   const [formTargetAge, setFormTargetAge] = useState('55');
   const [formDesiredIncome, setFormDesiredIncome] = useState('100000');
+
+  // Phase 4: Freedom Calculator & What-If Simulator State
+  const [freedomData, setFreedomData] = useState<FreedomAnalysisResponse | null>(null);
+  const [freedomLoading, setFreedomLoading] = useState(false);
+  const [freedomError, setFreedomError] = useState<string | null>(null);
+
+  // What-If Interactive Controls
+  const [simTargetAge, setSimTargetAge] = useState<number>(55);
+  const [simExtraSavings, setSimExtraSavings] = useState<number>(0);
+  const [simInflationRate, setSimInflationRate] = useState<number>(6.0);
+  const [simReturnRate, setSimReturnRate] = useState<number>(10.0);
+  const [simWithdrawalRate, setSimWithdrawalRate] = useState<number>(4.0);
+  const [simActiveScenario, setSimActiveScenario] = useState<'conservative' | 'base' | 'optimistic'>('base');
+  const [isSavingAssumptions, setIsSavingAssumptions] = useState(false);
+  const [assumptionSavedMsg, setAssumptionSavedMsg] = useState<string | null>(null);
 
   // Goal Form State
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
@@ -106,10 +125,82 @@ export default function PlanPage() {
 
       setGoals(goalsRes || []);
       setHistory(historyRes || []);
+
+      // Load Phase 4 Freedom Calculator status
+      try {
+        setFreedomLoading(true);
+        const freedomRes = await freedomApi.getStatus();
+        setFreedomData(freedomRes);
+        if (freedomRes) {
+          setSimTargetAge(freedomRes.target_age);
+          setSimInflationRate(freedomRes.active_scenario.inflation_rate_pct);
+          setSimReturnRate(freedomRes.active_scenario.expected_return_pct);
+          setSimWithdrawalRate(freedomRes.active_scenario.withdrawal_rate_pct);
+          setSimActiveScenario(freedomRes.active_scenario_name);
+        }
+      } catch (fErr: any) {
+        setFreedomError(fErr.message || 'Failed to load freedom status');
+      } finally {
+        setFreedomLoading(false);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load allocation data');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runSimulation(overrides?: {
+    targetAge?: number;
+    extraSavings?: number;
+    inflationRate?: number;
+    returnRate?: number;
+    withdrawalRate?: number;
+    scenario?: 'conservative' | 'base' | 'optimistic';
+  }) {
+    if (!profile && !freedomData) return;
+    try {
+      const ageToUse = overrides?.targetAge ?? simTargetAge;
+      const extraToUse = overrides?.extraSavings ?? simExtraSavings;
+      const infToUse = overrides?.inflationRate ?? simInflationRate;
+      const retToUse = overrides?.returnRate ?? simReturnRate;
+      const withToUse = overrides?.withdrawalRate ?? simWithdrawalRate;
+      const scenToUse = overrides?.scenario ?? simActiveScenario;
+
+      const baseSurplus = freedomData?.current_monthly_surplus ?? (currentPlan?.monthly_surplus || 0);
+      const simulatedMonthlyContribution = Math.max(baseSurplus + extraToUse, 0);
+
+      const simRes = await freedomApi.simulate({
+        target_age: ageToUse,
+        monthly_contribution: simulatedMonthlyContribution,
+        inflation_rate: infToUse,
+        expected_return: retToUse,
+        withdrawal_rate: withToUse,
+        scenario: scenToUse,
+      });
+
+      setFreedomData(simRes);
+    } catch (err: any) {
+      console.error('Simulation error:', err);
+    }
+  }
+
+  async function handleSaveAssumptions() {
+    setIsSavingAssumptions(true);
+    setAssumptionSavedMsg(null);
+    try {
+      await freedomApi.saveAssumptions({
+        planning_inflation_rate: simInflationRate,
+        planning_expected_return: simReturnRate,
+        planning_withdrawal_rate: simWithdrawalRate,
+        planning_scenario: simActiveScenario,
+      });
+      setAssumptionSavedMsg('Planning assumptions saved to profile.');
+      setTimeout(() => setAssumptionSavedMsg(null), 4000);
+    } catch (err: any) {
+      alert(`Failed to save assumptions: ${err.message}`);
+    } finally {
+      setIsSavingAssumptions(false);
     }
   }
 
@@ -537,76 +628,346 @@ export default function PlanPage() {
         )}
       </div>
 
-      {/* SECTION 2: FINANCIAL FREEDOM FOUNDATION PROGRESS */}
+      {/* SECTION 2: FINANCIAL FREEDOM CALCULATOR & WHAT-IF SIMULATOR */}
       <div style={{
         background: 'var(--canvas-surface)',
         border: '1px solid var(--border-hairline)',
         padding: '24px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '16px'
+        gap: '24px'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div>
-            <div className="meta-tag">FINANCIAL FREEDOM FOUNDATION</div>
-            <h2 style={{ fontSize: '18px', margin: '4px 0 0 0', fontWeight: 600 }}>
-              Freedom Position & Real Knowns
+            <div className="meta-tag" style={{ color: 'var(--signal-forest)' }}>
+              PHASE 4 • FINANCIAL FREEDOM CALCULATOR
+            </div>
+            <h2 style={{ fontSize: '20px', margin: '4px 0 0 0', fontWeight: 600 }}>
+              Freedom Position & Target Corpus Projection
             </h2>
+            <p style={{ color: 'var(--ink-secondary)', margin: '4px 0 0 0', fontSize: '13px' }}>
+              Deterministic actuarial estimate answering: <em>"How far am I from financial freedom?"</em>
+            </p>
           </div>
-          <button
-            onClick={() => setIsEditingProfile(!isEditingProfile)}
-            className="instrument-btn"
-            style={{ fontSize: '12px', padding: '6px 12px' }}
-          >
-            <Edit2 size={13} />
-            <span>{isEditingProfile ? 'Close Calibration' : 'Calibrate Profile'}</span>
-          </button>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button
+              onClick={() => setIsEditingProfile(!isEditingProfile)}
+              className="instrument-btn"
+              style={{ fontSize: '12px', padding: '7px 14px' }}
+            >
+              <Edit2 size={13} />
+              <span>{isEditingProfile ? 'Close Calibration' : 'Calibrate Profile'}</span>
+            </button>
+          </div>
         </div>
 
-        {/* Real Knowns Grid */}
+        {/* Top KPI Cards */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
           gap: '16px'
         }}>
           <div style={{ background: 'var(--canvas-inset)', padding: '16px', border: '1px solid var(--border-hairline)' }}>
-            <div className="meta-tag">TOTAL SAVINGS + INVESTMENTS</div>
-            <div style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-              ₹{(currentPlan?.financial_freedom.current_savings_investments ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            <div className="meta-tag">INVESTABLE WEALTH (W₀)</div>
+            <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
+              ₹{(freedomData?.initial_investable_wealth ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-              Liquid: ₹{(profile?.existing_liquid_savings || 0).toLocaleString('en-IN')} • Invested: ₹{(profile?.existing_investments || 0).toLocaleString('en-IN')}
+              Investments: ₹{(freedomData?.existing_investments ?? 0).toLocaleString('en-IN')}
+              <br />
+              Emergency Reserve Isolated: ₹{(freedomData?.emergency_fund_reserve ?? 0).toLocaleString('en-IN')}
             </div>
           </div>
 
           <div style={{ background: 'var(--canvas-inset)', padding: '16px', border: '1px solid var(--border-hairline)' }}>
-            <div className="meta-tag">MONTHLY CASH SURPLUS</div>
-            <div style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: isDeficit ? 'var(--signal-alert)' : 'var(--signal-forest)', marginTop: '4px' }}>
-              {isDeficit ? '-' : '+'}₹{Math.abs(surplus).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            <div className="meta-tag">INDICATIVE TARGET CORPUS</div>
+            <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)', marginTop: '4px' }}>
+              ₹{(freedomData?.active_scenario.indicative_target_corpus ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-              Continuous fuel for compounding and freedom
+              Future need: ₹{(freedomData?.active_scenario.future_monthly_lifestyle_need ?? 0).toLocaleString('en-IN')}/mo at age {freedomData?.target_age ?? 55}
             </div>
           </div>
 
           <div style={{ background: 'var(--canvas-inset)', padding: '16px', border: '1px solid var(--border-hairline)' }}>
-            <div className="meta-tag">EMERGENCY SAFETY PROGRESS</div>
-            <div style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-              {currentPlan?.financial_freedom.emergency_fund_progress_pct ?? 0}%
+            <div className="meta-tag">PROJECTED WEALTH AT TARGET AGE</div>
+            <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)', marginTop: '4px' }}>
+              ₹{(freedomData?.active_scenario.projected_wealth_at_target_age ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-              {currentPlan?.emergency_fund.coverage_months ?? 0} of {currentPlan?.emergency_fund.target_months ?? 6} target months covered
+              At {freedomData?.active_scenario.expected_return_pct ?? 10}% APR compounding over {freedomData?.years_to_freedom ?? 0} yrs
             </div>
           </div>
 
           <div style={{ background: 'var(--canvas-inset)', padding: '16px', border: '1px solid var(--border-hairline)' }}>
-            <div className="meta-tag">FREEDOM TARGET CORPUS</div>
-            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink-secondary)', marginTop: '8px' }}>
-              {currentPlan?.financial_freedom.target_corpus_status || 'Target corpus not calculated yet'}
+            <div className="meta-tag">STATUS & FUNDING GAP</div>
+            <div style={{
+              display: 'inline-block',
+              padding: '2px 8px',
+              fontSize: '11px',
+              fontWeight: 600,
+              marginTop: '4px',
+              background: freedomData?.active_scenario.status === 'Ahead of Target'
+                ? 'rgba(16, 185, 129, 0.12)'
+                : freedomData?.active_scenario.status === 'On Track'
+                  ? 'rgba(59, 130, 246, 0.12)'
+                  : 'rgba(239, 68, 68, 0.12)',
+              color: freedomData?.active_scenario.status === 'Ahead of Target'
+                ? 'var(--signal-forest)'
+                : freedomData?.active_scenario.status === 'On Track'
+                  ? '#3b82f6'
+                  : 'var(--signal-alert)',
+              border: '1px solid currentColor'
+            }}>
+              {freedomData?.active_scenario.status || 'Calculating'}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--ink-tertiary)', marginTop: '4px' }}>
-              Requires actuarial inflation & return calibration in Phase 4
+            <div style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-mono)', marginTop: '6px' }}>
+              {freedomData?.active_scenario.funding_gap && freedomData.active_scenario.funding_gap > 0
+                ? `Gap: ₹${freedomData.active_scenario.funding_gap.toLocaleString('en-IN')}`
+                : `Surplus: ₹${(freedomData?.active_scenario.funding_surplus ?? 0).toLocaleString('en-IN')}`}
             </div>
+            <div style={{ fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
+              Required monthly: ₹{(freedomData?.active_scenario.required_monthly_contribution ?? 0).toLocaleString('en-IN')}/mo
+            </div>
+          </div>
+        </div>
+
+        {/* Narrative Analysis */}
+        {freedomData?.active_scenario.explanation && (
+          <div style={{
+            padding: '16px 20px',
+            background: 'var(--canvas-inset)',
+            borderLeft: '3px solid var(--signal-forest)',
+            fontSize: '13px',
+            lineHeight: 1.6
+          }}>
+            <strong>Diagnostic: </strong>
+            {freedomData.active_scenario.explanation}
+          </div>
+        )}
+
+        {/* Scenario Comparison Table */}
+        {freedomData && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="meta-tag">THREE EXPLICIT PLANNING SCENARIOS</div>
+            <div style={{ overflowX: 'auto', border: '1px solid var(--border-hairline)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: 'var(--canvas-inset)', borderBottom: '1px solid var(--border-hairline)', fontFamily: 'var(--font-mono)', color: 'var(--ink-tertiary)' }}>
+                    <th style={{ padding: '10px 14px' }}>SCENARIO</th>
+                    <th style={{ padding: '10px 14px' }}>RETURN / INFLATION / SWR</th>
+                    <th style={{ padding: '10px 14px' }}>FUTURE MO. NEED</th>
+                    <th style={{ padding: '10px 14px' }}>TARGET CORPUS</th>
+                    <th style={{ padding: '10px 14px' }}>PROJECTED WEALTH</th>
+                    <th style={{ padding: '10px 14px' }}>REQ. MONTHLY</th>
+                    <th style={{ padding: '10px 14px' }}>STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(['conservative', 'base', 'optimistic'] as const).map((scenKey) => {
+                    const scen = freedomData.scenarios[scenKey];
+                    const isSelected = freedomData.active_scenario_name === scenKey;
+                    return (
+                      <tr
+                        key={scenKey}
+                        style={{
+                          borderBottom: '1px solid var(--border-hairline)',
+                          background: isSelected ? 'rgba(255, 255, 255, 0.03)' : 'transparent',
+                          fontWeight: isSelected ? 600 : 400
+                        }}
+                      >
+                        <td style={{ padding: '10px 14px', textTransform: 'capitalize' }}>
+                          {scen.scenario_name} {isSelected && '• (Selected)'}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
+                          {scen.expected_return_pct}% / {scen.inflation_rate_pct}% / {scen.withdrawal_rate_pct}%
+                        </td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
+                          ₹{scen.future_monthly_lifestyle_need.toLocaleString('en-IN')}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
+                          ₹{scen.indicative_target_corpus.toLocaleString('en-IN')}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)' }}>
+                          ₹{scen.projected_wealth_at_target_age.toLocaleString('en-IN')}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
+                          ₹{scen.required_monthly_contribution.toLocaleString('en-IN')}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{
+                            padding: '2px 6px',
+                            fontSize: '10.5px',
+                            fontWeight: 600,
+                            color: scen.status === 'Ahead of Target'
+                              ? 'var(--signal-forest)'
+                              : scen.status === 'On Track'
+                                ? '#3b82f6'
+                                : 'var(--signal-alert)'
+                          }}>
+                            {scen.status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Interactive What-If Simulator */}
+        <div style={{
+          background: 'var(--canvas-inset)',
+          border: '1px solid var(--border-hairline)',
+          padding: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '14px' }}>
+              <Sliders size={16} />
+              <span>Interactive What-If Simulation Sandbox</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {assumptionSavedMsg && (
+                <span style={{ fontSize: '12px', color: 'var(--signal-forest)' }}>
+                  {assumptionSavedMsg}
+                </span>
+              )}
+              <button
+                onClick={handleSaveAssumptions}
+                disabled={isSavingAssumptions}
+                className="instrument-btn"
+                style={{ fontSize: '12px', padding: '6px 14px' }}
+                title="Persist current sandbox rates as your default planning assumptions in your financial profile"
+              >
+                {isSavingAssumptions ? 'Saving...' : 'Save As My Default Assumptions'}
+              </button>
+            </div>
+          </div>
+
+          <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--ink-secondary)' }}>
+            Adjust the levers below to preview your future wealth projection. Calculations update dynamically without overwriting your database records until you click "Save".
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+            <div>
+              <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
+                Simulated Target Age ({simTargetAge} yrs)
+              </label>
+              <input
+                type="range"
+                min={Math.max((freedomData?.current_age ?? 30) + 1, 20)}
+                max="85"
+                value={simTargetAge}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setSimTargetAge(val);
+                  runSimulation({ targetAge: val });
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
+                Additional Monthly Savings (+₹{simExtraSavings.toLocaleString('en-IN')})
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="100000"
+                step="2500"
+                value={simExtraSavings}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setSimExtraSavings(val);
+                  runSimulation({ extraSavings: val });
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
+                Inflation Rate ({simInflationRate}%)
+              </label>
+              <input
+                type="range"
+                min="3.0"
+                max="12.0"
+                step="0.5"
+                value={simInflationRate}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setSimInflationRate(val);
+                  runSimulation({ inflationRate: val });
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
+                Compounding Return ({simReturnRate}%)
+              </label>
+              <input
+                type="range"
+                min="5.0"
+                max="18.0"
+                step="0.5"
+                value={simReturnRate}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setSimReturnRate(val);
+                  runSimulation({ returnRate: val });
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
+                Safe Withdrawal Rate ({simWithdrawalRate}%)
+              </label>
+              <input
+                type="range"
+                min="2.5"
+                max="6.0"
+                step="0.25"
+                value={simWithdrawalRate}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setSimWithdrawalRate(val);
+                  runSimulation({ withdrawalRate: val });
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Mathematical Transparency & Regulatory Disclaimer */}
+        <div style={{
+          padding: '14px 18px',
+          background: 'var(--canvas-surface)',
+          border: '1px solid var(--border-hairline)',
+          fontSize: '11.5px',
+          color: 'var(--ink-secondary)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px'
+        }}>
+          <div style={{ fontWeight: 600, color: 'var(--ink-primary)' }}>Mathematical Transparency Formulas:</div>
+          <div>• <strong>Future Monthly Expense: </strong>{freedomData?.formula_transparency.future_expense_formula || 'FV = Current_Monthly_Need * (1 + r_inflation)^years'}</div>
+          <div>• <strong>Indicative Target Corpus: </strong>{freedomData?.formula_transparency.target_corpus_formula || 'Target_Corpus = (FV_Monthly * 12) / r_withdrawal'}</div>
+          <div>• <strong>Projected Wealth: </strong>{freedomData?.formula_transparency.future_wealth_formula || 'Projected_Wealth = Initial_Wealth*(1+i)^n + Monthly_Contribution*(((1+i)^n - 1)/i)'}</div>
+          <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '6px', fontStyle: 'italic' }}>
+            Disclaimer: {freedomData?.assumptions_disclaimer || 'These are planning estimates based on user-calibrated economic assumptions, not market return guarantees. Actual future returns and inflation will vary.'}
           </div>
         </div>
 
