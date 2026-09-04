@@ -1,5 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import { CreateTransactionInput, UpdateTransactionInput, QueryTransactionInput } from './transaction.schema.js';
+import {
+  CreateTransactionInput,
+  UpdateTransactionInput,
+  QueryTransactionInput,
+  MonthlyFinancialSummary,
+  MonthlyCategoryBreakdown,
+} from './transaction.schema.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
 import { env } from '../../config/env.js';
@@ -25,6 +31,74 @@ const TAX_SAVING_CATEGORIES = new Set([
   'donations_80g',
   'medical_expenditure_80d'
 ]);
+
+function computeMonthlySummary(month: string, transactions: TransactionRecord[]): MonthlyFinancialSummary {
+  const round2 = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+  let total_income = 0;
+  let total_expenses = 0;
+  let total_transfers = 0;
+  let incomeCount = 0;
+  let expenseCount = 0;
+  let transferCount = 0;
+
+  const expenseCategoryMap = new Map<string, number>();
+
+  for (const tx of transactions) {
+    const amount = Number(tx.amount);
+    if (tx.type === 'income' || tx.type === 'credit') {
+      total_income += amount;
+      incomeCount++;
+    } else if (tx.type === 'expense' || tx.type === 'debit') {
+      total_expenses += amount;
+      expenseCount++;
+      const cat = (tx.category && tx.category.trim()) || 'uncategorized';
+      expenseCategoryMap.set(cat, (expenseCategoryMap.get(cat) || 0) + amount);
+    } else if (tx.type === 'transfer') {
+      total_transfers += amount;
+      transferCount++;
+    }
+  }
+
+  total_income = round2(total_income);
+  total_expenses = round2(total_expenses);
+  total_transfers = round2(total_transfers);
+
+  const monthly_surplus = round2(total_income - total_expenses);
+  const savings_rate = total_income > 0 ? round2((monthly_surplus / total_income) * 100) : 0;
+
+  const categories: MonthlyCategoryBreakdown[] = Array.from(expenseCategoryMap.entries())
+    .map(([cat, amt]) => {
+      const roundedAmt = round2(amt);
+      const percentage = total_expenses > 0 ? round2((roundedAmt / total_expenses) * 100) : 0;
+      return {
+        category: cat,
+        amount: roundedAmt,
+        percentage,
+      };
+    })
+    .sort((a, b) => b.amount - a.amount);
+
+  const largest_expense_category = categories.length > 0 && categories[0].amount > 0 ? categories[0] : null;
+
+  return {
+    month,
+    total_income,
+    total_expenses,
+    monthly_surplus,
+    savings_rate,
+    total_transfers,
+    currency: 'INR',
+    categories,
+    largest_expense_category,
+    transaction_count: {
+      income: incomeCount,
+      expenses: expenseCount,
+      transfers: transferCount,
+      total: transactions.length,
+    },
+  };
+}
 
 export class TransactionService {
   /**
@@ -83,6 +157,7 @@ export class TransactionService {
           category: record.category || null,
           subcategory: record.subcategory || null,
           merchant_name: record.merchant_name || null,
+          account: record.account || null,
           is_tax_relevant: record.is_tax_relevant,
           gst_applicable: record.gst_applicable,
           gst_amount: record.gst_amount || null,
@@ -143,11 +218,13 @@ export class TransactionService {
       dbQuery = dbQuery.order('date', { ascending: false }).range(offset, offset + limit - 1);
 
       const { data, error, count } = await dbQuery;
+      const hasInMemory = !isProduction && Array.from(inMemoryTransactions.values()).some((t) => t.user_id === userId);
+
       if (error) {
         if (isProduction) {
           throw new AppError(`Failed to retrieve transactions: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
         }
-      } else if (data) {
+      } else if (data && (data.length > 0 || !hasInMemory)) {
         return { transactions: data as TransactionRecord[], total: count !== null && count !== undefined ? count : data.length };
       }
     } catch (err) {
@@ -315,6 +392,58 @@ export class TransactionService {
 
     inMemoryTransactions.delete(id);
     return { success: true, id };
+  }
+
+  async getMonthlySummary(userId: string, month: string): Promise<MonthlyFinancialSummary> {
+    if (!userId) {
+      throw new AppError('User context is required', 401, 'UNAUTHORIZED');
+    }
+
+    const [yearStr, monthStr] = month.split('-');
+    const year = parseInt(yearStr, 10);
+    const monthNum = parseInt(monthStr, 10);
+    const lastDay = new Date(Date.UTC(year, monthNum, 0)).getUTCDate();
+    const startDate = `${month}-01`;
+    const endDate = `${month}-${String(lastDay).padStart(2, '0')}`;
+
+    const isProduction = env.NODE_ENV === 'production';
+
+    // Try Supabase first
+    try {
+      const supabase = getSupabaseAdminClient();
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      const hasInMemory = !isProduction && Array.from(inMemoryTransactions.values()).some((t) => t.user_id === userId);
+
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Failed to retrieve monthly transactions: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
+        }
+      } else if (data && (data.length > 0 || !hasInMemory)) {
+        return computeMonthlySummary(month, data as TransactionRecord[]);
+      }
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Monthly summary query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+      }
+    }
+
+    if (isProduction) {
+      throw new AppError('Monthly summary query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+    }
+
+    // In-memory filter for dev/test mode
+    const userRecords = Array.from(inMemoryTransactions.values()).filter(
+      (t) => t.user_id === userId && t.date >= startDate && t.date <= endDate
+    );
+
+    return computeMonthlySummary(month, userRecords);
   }
 }
 

@@ -105,6 +105,8 @@ export const authApi = {
 };
 
 // 2. Transaction APIs
+export type TransactionType = 'income' | 'expense' | 'transfer' | 'credit' | 'debit';
+
 export interface Transaction {
   id: string;
   user_id: string;
@@ -112,22 +114,62 @@ export interface Transaction {
   description: string;
   amount: number;
   currency: string;
-  type: 'credit' | 'debit';
+  type: TransactionType;
   category?: string;
+  subcategory?: string;
+  merchant_name?: string;
+  account?: string;
   is_tax_relevant: boolean;
   tax_category?: string;
   gst_applicable: boolean;
-  gst_rate?: number;
+  gst_amount?: number;
+  confidence_score?: number;
+  user_verified?: boolean;
+  notes?: string;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface MonthlyCategoryBreakdown {
+  category: string;
+  amount: number;
+  percentage: number;
+}
+
+export interface MonthlyFinancialSummary {
+  month: string;
+  total_income: number;
+  total_expenses: number;
+  monthly_surplus: number;
+  savings_rate: number;
+  total_transfers: number;
+  currency: string;
+  categories: MonthlyCategoryBreakdown[];
+  largest_expense_category: MonthlyCategoryBreakdown | null;
+  transaction_count: {
+    income: number;
+    expenses: number;
+    transfers: number;
+    total: number;
+  };
 }
 
 export const transactionApi = {
-  list: async (params?: { limit?: number; offset?: number; is_tax_relevant?: boolean; type?: string }) => {
+  list: async (params?: {
+    limit?: number;
+    offset?: number;
+    is_tax_relevant?: boolean;
+    type?: string;
+    start_date?: string;
+    end_date?: string;
+  }) => {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.is_tax_relevant !== undefined) query.set('is_tax_relevant', String(params.is_tax_relevant));
     if (params?.type) query.set('type', params.type);
+    if (params?.start_date) query.set('start_date', params.start_date);
+    if (params?.end_date) query.set('end_date', params.end_date);
 
     return request<{ transactions: Transaction[]; total: number }>(`/transactions?${query.toString()}`);
   },
@@ -136,6 +178,20 @@ export const transactionApi = {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  },
+  update: async (id: string, data: Partial<Transaction>) => {
+    return request<Transaction>(`/transactions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+  delete: async (id: string) => {
+    return request<{ success: boolean; id: string }>(`/transactions/${id}`, {
+      method: 'DELETE',
+    });
+  },
+  getMonthlySummary: async (month: string) => {
+    return request<MonthlyFinancialSummary>(`/transactions/summary/monthly?month=${encodeURIComponent(month)}`);
   },
 };
 

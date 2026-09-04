@@ -67,6 +67,20 @@ export class TransactionController {
       next(err);
     }
   }
+
+  async getMonthlySummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return next(new AppError('Unauthorized', 401, 'UNAUTHORIZED'));
+      }
+      const month = req.query.month as string;
+      const result = await transactionService.getMonthlySummary(userId, month);
+      res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const transactionController = new TransactionController();

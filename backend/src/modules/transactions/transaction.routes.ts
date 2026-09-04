@@ -6,6 +6,7 @@ import {
   updateTransactionSchema,
   queryTransactionSchema,
   transactionIdParamSchema,
+  monthlySummaryQuerySchema,
 } from './transaction.schema.js';
 
 const router = Router();
@@ -20,6 +21,12 @@ router.get(
   '/',
   validateQuery(queryTransactionSchema),
   transactionController.list.bind(transactionController)
+);
+
+router.get(
+  '/summary/monthly',
+  validateQuery(monthlySummaryQuerySchema),
+  transactionController.getMonthlySummary.bind(transactionController)
 );
 
 router.get(

@@ -12,7 +12,8 @@
     "test:ai": "tsx tests/ai.test.ts",
     "test:perf": "tsx tests/step7_performance.test.ts",
     "test:security": "tsx tests/step8_security.test.ts",
-    "test:phase1": "tsx tests/phase1_production_integrity.test.ts"
+    "test:phase1": "tsx tests/phase1_production_integrity.test.ts",
+    "test:monthly": "tsx tests/step2_monthly_money.test.ts"
   },
   "keywords": [
     "personal-ai-ca",
