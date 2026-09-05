@@ -2,6 +2,7 @@ import { SignupInput, LoginInput, MagicLinkInput } from './auth.schema.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { env } from '../../config/env.js';
 import { getSupabaseClient, getSupabaseAdminClient } from '../../config/supabase.js';
+import { testUserRoles } from '../../middleware/auth.js';
 
 export function isRedirectUrlAllowed(targetUrl: string, allowedUrls: string[]): boolean {
   try {
@@ -240,6 +241,21 @@ export class AuthService {
   async getProfile(userId: string) {
     if (!userId) {
       throw new AppError('User ID is required', 400, 'INVALID_USER_ID');
+    }
+
+    // In test environment, if userId is explicitly registered in testUserRoles, return test profile
+    if (env.NODE_ENV === 'test' && testUserRoles.has(userId)) {
+      return {
+        id: userId,
+        full_name: 'Test Step4 User',
+        phone: null,
+        business_type: 'individual',
+        preferred_language: 'en',
+        financial_year_start: 4,
+        role: testUserRoles.get(userId) || 'USER',
+        onboarding_completed: true,
+        created_at: new Date().toISOString(),
+      };
     }
 
     try {

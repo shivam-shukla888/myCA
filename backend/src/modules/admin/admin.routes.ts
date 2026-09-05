@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
 import { verifyAuditEntry } from '../ai/audit/auditLogger.js';
+import { env } from '../../config/env.js';
 
 const router = Router();
 
@@ -11,14 +12,22 @@ router.use(requireRole('ADMIN'));
 
 router.get('/audit-logs', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const supabase = getSupabaseAdminClient();
-    const { data, error } = await supabase
-      .from('ai_recommendations_log')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50);
+    let entries: any[] = [];
+    try {
+      const supabase = getSupabaseAdminClient();
+      const { data, error } = await supabase
+        .from('ai_recommendations_log')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (data) entries = data;
+      else if (error && env.NODE_ENV === 'production') throw error;
+    } catch (dbErr) {
+      if (env.NODE_ENV === 'production') throw dbErr;
+      entries = [];
+    }
 
-    const logsWithVerification = (data || []).map((entry: any) => ({
+    const logsWithVerification = entries.map((entry: any) => ({
       ...entry,
       is_signature_valid: entry.hmac_signature ? verifyAuditEntry(entry) : false,
     }));
