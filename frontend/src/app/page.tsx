@@ -11,22 +11,24 @@ export default function SurfacePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const [txRes, docRes] = await Promise.all([
-          transactionApi.list({ limit: 20 }),
-          documentApi.list({ limit: 10 }),
-        ]);
-        setTransactions(txRes.transactions || []);
-        setDocuments(docRes.documents || []);
-      } catch (err: any) {
-        setError(err.message || 'Unable to connect to backend service.');
-        console.warn('Notice: Backend data fetch deferred:', err.message);
-      } finally {
-        setLoading(false);
-      }
+  async function loadData() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [txRes, docRes] = await Promise.all([
+        transactionApi.list({ limit: 20 }),
+        documentApi.list({ limit: 10 }),
+      ]);
+      setTransactions(txRes.transactions || []);
+      setDocuments(docRes.documents || []);
+    } catch (err: any) {
+      setError(err.message || 'Unable to connect to backend service.');
+    } finally {
+      setLoading(false);
     }
+  }
+
+  useEffect(() => {
     loadData();
   }, []);
 
@@ -71,7 +73,36 @@ export default function SurfacePage() {
 
       <hr className="hairline-rule" style={{ margin: 0 }} />
 
+      {/* Truthful Error State Banner with Retry */}
+      {error && (
+        <div style={{
+          padding: '24px 28px',
+          background: 'var(--canvas-surface)',
+          border: '1px solid var(--signal-alert)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '16px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <AlertCircle size={20} style={{ color: 'var(--signal-alert)', flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink-primary)' }}>
+                Unable to load financial state
+              </div>
+              <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '2px' }}>
+                {error}
+              </div>
+            </div>
+          </div>
+          <button onClick={() => loadData()} className="instrument-btn" style={{ flexShrink: 0 }}>
+            Retry Connection
+          </button>
+        </div>
+      )}
+
       {/* Primary Financial State (Where am I?) */}
+      {!error && (
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
@@ -129,6 +160,7 @@ export default function SurfacePage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Asymmetric Section: Attention Checkpoints & Upcoming Obligations */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '32px' }}>

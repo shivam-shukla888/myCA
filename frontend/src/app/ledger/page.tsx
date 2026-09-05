@@ -23,6 +23,7 @@ import {
   X,
   Wallet,
 } from 'lucide-react';
+import AuthGuard from '../../components/layout/AuthGuard';
 
 const CATEGORY_PRESETS: Record<'income' | 'expense' | 'transfer', string[]> = {
   income: ['Salary', 'Freelance / Consulting', 'Business Revenue', 'Dividend / Interest', 'Rental Income', 'Other Income'],
@@ -208,7 +209,7 @@ export default function LedgerPage() {
 
   const isSurplusPositive = (summary?.monthly_surplus ?? 0) >= 0;
 
-  return (
+  return (<AuthGuard>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
       {/* Top Banner & Month Navigation Header */}
       <div style={{
@@ -296,17 +297,28 @@ export default function LedgerPage() {
 
       {error && (
         <div style={{
-          padding: '14px 18px',
-          background: 'rgba(239, 68, 68, 0.08)',
+          padding: '20px 24px',
+          background: 'var(--canvas-surface)',
           border: '1px solid var(--signal-alert)',
-          color: 'var(--signal-alert)',
           display: 'flex',
+          justifyContent: 'space-between',
           alignItems: 'center',
-          gap: '10px',
-          fontSize: '13px'
+          gap: '16px',
         }}>
-          <AlertCircle size={16} />
-          <span>{error}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <AlertCircle size={20} style={{ color: 'var(--signal-alert)', flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink-primary)' }}>
+                Unable to load ledger records for {monthDisplayLabel}
+              </div>
+              <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '2px' }}>
+                {error}
+              </div>
+            </div>
+          </div>
+          <button onClick={() => loadMonthData(currentMonth)} className="instrument-btn" style={{ flexShrink: 0 }}>
+            Retry
+          </button>
         </div>
       )}
 
@@ -977,5 +989,5 @@ export default function LedgerPage() {
         </div>
       )}
     </div>
-  );
+  </AuthGuard> );
 }

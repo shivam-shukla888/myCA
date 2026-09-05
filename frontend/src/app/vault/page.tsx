@@ -35,14 +35,16 @@ export default function VaultPage() {
   const [confirming, setConfirming] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewSuccess, setReviewSuccess] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function loadDocuments() {
     setLoading(true);
+    setError(null);
     try {
       const res = await documentApi.list({ limit: 50 });
       setDocuments(res.documents || []);
     } catch (err: any) {
-      console.warn('Notice: Failed to load documents:', err?.message || err);
+      setError(err?.message || 'Unable to connect to document vault.');
     } finally {
       setLoading(false);
     }
@@ -229,7 +231,33 @@ export default function VaultPage() {
 
       {/* Vault Nodes Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
-        {documents.length === 0 ? (
+        {error ? (
+          <div style={{
+            gridColumn: '1 / -1',
+            padding: '36px',
+            border: '1px solid var(--signal-alert)',
+            background: 'var(--canvas-surface)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '16px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <AlertCircle size={20} style={{ color: 'var(--signal-alert)', flexShrink: 0 }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink-primary)' }}>
+                  Unable to load archived documents
+                </div>
+                <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '2px' }}>
+                  {error}
+                </div>
+              </div>
+            </div>
+            <button onClick={() => loadDocuments()} className="instrument-btn" style={{ flexShrink: 0 }}>
+              Retry Vault
+            </button>
+          </div>
+        ) : documents.length === 0 ? (
           <div style={{
             gridColumn: '1 / -1',
             padding: '48px',

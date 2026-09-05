@@ -11,8 +11,8 @@ export default function LoginPage() {
   const { login } = useAuth();
 
   const [mode, setMode] = useState<'password' | 'magic-link'>('password');
-  const [email, setEmail] = useState('personal_ca_test_step4@gmail.com');
-  const [password, setPassword] = useState('TestPassword123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

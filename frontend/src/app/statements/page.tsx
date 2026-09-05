@@ -7,18 +7,22 @@ import { Printer, ShieldAlert, FileText, CheckCircle } from 'lucide-react';
 export default function StatementsPage() {
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function fetchReport() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await reportApi.generate('tax_summary', '2025-26');
+      setReport(res);
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate statement from ledger.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function fetchReport() {
-      try {
-        const res = await reportApi.generate('tax_summary', '2025-26');
-        setReport(res);
-      } catch (err) {
-        console.error('Failed to generate statement:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchReport();
   }, []);
 
@@ -38,7 +42,7 @@ export default function StatementsPage() {
           </p>
         </div>
 
-        <button onClick={() => window.print()} className="instrument-btn">
+        <button onClick={() => window.print()} className="instrument-btn" disabled={Boolean(error)}>
           <Printer size={14} />
           Print Fiscal Statement
         </button>
@@ -46,7 +50,38 @@ export default function StatementsPage() {
 
       <hr className="hairline-rule" style={{ margin: 0 }} />
 
+      {error && (
+        <div style={{
+          padding: '24px 28px',
+          background: 'var(--canvas-surface)',
+          border: '1px solid var(--signal-alert)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '16px',
+          maxWidth: '900px',
+          margin: '0 auto',
+          width: '100%'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <ShieldAlert size={20} style={{ color: 'var(--signal-alert)', flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink-primary)' }}>
+                Unable to generate statutory fiscal statement
+              </div>
+              <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '2px' }}>
+                {error}
+              </div>
+            </div>
+          </div>
+          <button onClick={() => fetchReport()} className="instrument-btn" style={{ flexShrink: 0 }}>
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Editorial Fiscal Statement Canvas */}
+      {!error && (
       <div style={{
         background: 'var(--canvas-surface)',
         border: '1px solid var(--ink-primary)',
@@ -156,6 +191,7 @@ export default function StatementsPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -30,57 +30,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function initAuth() {
-      const isDev = process.env.NODE_ENV === 'development';
       const storedToken = getAuthToken();
 
-      // 1. If stored token is a development mock token:
-      if (storedToken && storedToken.startsWith('mock-test-token:')) {
-        if (!isDev) {
-          // Stale development mock token in production/test -> purge and remain unauthenticated
-          setAuthToken(null);
-          setToken(null);
-          setUser(null);
-          setIsLoading(false);
-          return;
-        } else {
-          // Permitted only in local development
-          setToken(storedToken);
-          setUser({
-            id: '73422394-8b34-423d-8577-ff1c3c40614c',
-            email: 'personal_ca_test_step4@gmail.com',
-            role: 'USER',
-            full_name: 'Shivam Shukla',
-            business_type: 'individual_proprietor',
-          });
-          setIsLoading(false);
-          return;
-        }
-      }
-
-      // 2. If no token exists in storage:
       if (!storedToken) {
-        if (isDev) {
-          // Fallback default development session for immediate preview in local dev only
-          const devToken = 'mock-test-token:73422394-8b34-423d-8577-ff1c3c40614c:personal_ca_test_step4@gmail.com';
-          setAuthToken(devToken);
-          setToken(devToken);
-          setUser({
-            id: '73422394-8b34-423d-8577-ff1c3c40614c',
-            email: 'personal_ca_test_step4@gmail.com',
-            role: 'USER',
-            full_name: 'Shivam Shukla',
-            business_type: 'individual_proprietor',
-          });
-        } else {
-          // Production / Test: First-time visitor remains strictly unauthenticated
-          setToken(null);
-          setUser(null);
-        }
+        setToken(null);
+        setUser(null);
         setIsLoading(false);
         return;
       }
 
-      // 3. Legitimate authentication token exists (e.g. Supabase Auth JWT)
       setToken(storedToken);
       try {
         const profile = await authApi.getMe();
@@ -91,24 +49,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           full_name: profile.full_name,
           business_type: profile.business_type,
         });
-      } catch (e) {
-        if (!isDev) {
-          // In production: if token verification fails, clear stale token and remain unauthenticated
-          setAuthToken(null);
-          setToken(null);
-          setUser(null);
-        } else {
-          // Development fallback: clear expired token and use valid devToken
-          const devToken = 'mock-test-token:73422394-8b34-423d-8577-ff1c3c40614c:personal_ca_test_step4@gmail.com';
-          setAuthToken(devToken);
-          setToken(devToken);
-          setUser({
-            id: '73422394-8b34-423d-8577-ff1c3c40614c',
-            email: 'personal_ca_test_step4@gmail.com',
-            role: 'USER',
-            full_name: 'Shivam Shukla',
-          });
-        }
+      } catch (e: any) {
+        // Token is invalid or expired, clear session
+        setAuthToken(null);
+        setToken(null);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -117,12 +62,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, []);
 
+  // Multi-tab session synchronization
+  useEffect(() => {
+    function handleStorageChange(e: StorageEvent) {
+      if (e.key === 'personal_ca_auth_token') {
+        if (!e.newValue) {
+          setUser(null);
+          setToken(null);
+        } else if (e.newValue !== token) {
+          setToken(e.newValue);
+          authApi.getMe().then((p) => {
+            setUser({
+              id: p.id,
+              email: (p as Record<string, unknown>).email as string || '',
+              role: p.role,
+              full_name: p.full_name,
+              business_type: p.business_type,
+            });
+          }).catch(() => {
+            setUser(null);
+            setToken(null);
+          });
+        }
+      }
+    }
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [token]);
+
   const login = async (email: string, pass: string) => {
     setIsLoading(true);
     try {
       const res = await authApi.login({ email, password: pass });
-      setAuthToken(res.session.access_token);
-      setToken(res.session.access_token);
+      const accessToken = res.session.access_token;
+      const refreshToken = res.session.refresh_token;
+      setAuthToken(accessToken);
+      if (typeof window !== 'undefined' && refreshToken) {
+        localStorage.setItem('personal_ca_refresh_token', refreshToken);
+      }
+      setToken(accessToken);
       setUser({
         id: res.user.id,
         email: res.user.email,
@@ -133,7 +111,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Call backend logout endpoint to clear httpOnly session cookie
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      await fetch(`${baseUrl ? `${baseUrl}` : ''}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (e) {
+      console.warn('Logout backend call failed:', e);
+    }
+    // Clear client-side tokens
     setAuthToken(null);
     setToken(null);
     setUser(null);

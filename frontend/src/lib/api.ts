@@ -1,64 +1,77 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+function getApiUrl(): string {
+  // Use explicit API URL if set
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+
+  // Browser environment: enforce explicit config in production
+  if (typeof window !== 'undefined') {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocal) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('NEXT_PUBLIC_API_URL must be set in production environment');
+      }
+      // Fallback to Render backend for non‑production remote hosts
+      return 'https://myca-backend.onrender.com/api/v1';
+    }
+  }
+
+  // Default to local development server
+  return 'http://localhost:4000/api/v1';
+}
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocal) {
+      // In production, require explicit API URL to avoid fallback to localhost
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('NEXT_PUBLIC_API_URL must be set in production environment');
+      }
+      return 'https://myca-backend.onrender.com/api/v1';
+    }
+  }
+  return 'http://localhost:4000/api/v1';
+}
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocal) {
+      return 'https://myca-backend.onrender.com/api/v1';
+    }
+  }
+  return 'http://localhost:4000/api/v1';
+}
+
+const API_URL = getApiUrl();
 
 export class ApiError extends Error {
   code: string;
   statusCode: number;
+  requestId?: string;
   details?: any;
 
-  constructor(message: string, statusCode: number, code: string, details?: any) {
+  constructor(message: string, statusCode: number, code: string, details?: any, requestId?: string) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
     this.code = code;
     this.details = details;
+    this.requestId = requestId;
   }
 }
 
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
-  const token = localStorage.getItem('personal_ca_auth_token');
-  if (!token) {
-    const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    if (process.env.NODE_ENV === 'development' || isLocalHost) {
-      const devToken = 'mock-test-token:73422394-8b34-423d-8577-ff1c3c40614c:personal_ca_test_step4@gmail.com';
-      try {
-        localStorage.setItem('personal_ca_auth_token', devToken);
-      } catch {}
-      return devToken;
-    }
-    return null;
-  }
+  return localStorage.getItem('personal_ca_auth_token');
+}
 
-  // Detect and purge expired JWTs to prevent persistent 401 crashes
-  if (!token.startsWith('mock-test-token:')) {
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const base64Url = parts[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-          atob(base64)
-            .split('')
-            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-            .join('')
-        );
-        const payload = JSON.parse(jsonPayload);
-        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-          localStorage.removeItem('personal_ca_auth_token');
-          if (process.env.NODE_ENV === 'development') {
-            const devToken = 'mock-test-token:73422394-8b34-423d-8577-ff1c3c40614c:personal_ca_test_step4@gmail.com';
-            localStorage.setItem('personal_ca_auth_token', devToken);
-            return devToken;
-          }
-          return null;
-        }
-      }
-    } catch {
-      // Let backend handle malformed tokens
-    }
-  }
-
-  return token;
+export function getRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('personal_ca_refresh_token');
 }
 
 export function setAuthToken(token: string | null) {
@@ -67,10 +80,60 @@ export function setAuthToken(token: string | null) {
     localStorage.setItem('personal_ca_auth_token', token);
   } else {
     localStorage.removeItem('personal_ca_auth_token');
+    localStorage.removeItem('personal_ca_refresh_token');
   }
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export function setAuthSession(accessToken: string | null, refreshToken?: string | null) {
+  if (typeof window === 'undefined') return;
+  if (accessToken) {
+    localStorage.setItem('personal_ca_auth_token', accessToken);
+    if (refreshToken) {
+      localStorage.setItem('personal_ca_refresh_token', refreshToken);
+    }
+  } else {
+    localStorage.removeItem('personal_ca_auth_token');
+    localStorage.removeItem('personal_ca_refresh_token');
+  }
+}
+
+let isRefreshing = false;
+
+async function refreshAuthSession(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken || isRefreshing) return null;
+
+  isRefreshing = true;
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!res.ok) {
+      setAuthSession(null);
+      return null;
+    }
+
+    const json = await res.json();
+    const newAccessToken = json.data?.session?.access_token;
+    const newRefreshToken = json.data?.session?.refresh_token || refreshToken;
+
+    if (newAccessToken) {
+      setAuthSession(newAccessToken, newRefreshToken);
+      return newAccessToken;
+    }
+    return null;
+  } catch {
+    setAuthSession(null);
+    return null;
+  } finally {
+    isRefreshing = false;
+  }
+}
+
+async function request<T>(endpoint: string, options: RequestInit = {}, isRetry = false): Promise<T> {
   const token = getAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -82,30 +145,51 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   const url = `${API_URL}${endpoint}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // Bounded 15s timeout
+
   try {
     const res = await fetch(url, {
       ...options,
       headers,
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
     const json = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      if (res.status === 401) {
-        // Clear invalid/expired token immediately
-        setAuthToken(null);
+      // If 401 and refresh token available, attempt single retry
+      if (res.status === 401 && !isRetry && getRefreshToken()) {
+        const refreshedToken = await refreshAuthSession();
+        if (refreshedToken) {
+          return request<T>(endpoint, options, true);
+        }
       }
+
+      const errorObj = json.error || {};
+      const requestId = res.headers.get('x-request-id') || errorObj.request_id || 'unknown';
+
+      if (res.status === 401) {
+        setAuthSession(null);
+      }
+
       throw new ApiError(
-        json.error?.message || `Request failed with status ${res.status}`,
+        errorObj.message || `Request failed with status ${res.status}`,
         res.status,
-        json.error?.code || 'UNKNOWN_ERROR',
-        json.error?.details
+        errorObj.code || 'UNKNOWN_ERROR',
+        errorObj.details,
+        requestId
       );
     }
 
     return json.data as T;
   } catch (err: any) {
+    clearTimeout(timeoutId);
     if (err instanceof ApiError) throw err;
+    if (err.name === 'AbortError') {
+      throw new ApiError('Request timed out after 15 seconds', 408, 'REQUEST_TIMEOUT');
+    }
     throw new ApiError(err.message || 'Network request failed', 500, 'NETWORK_ERROR');
   }
 }
@@ -119,6 +203,15 @@ export const authApi = {
     }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
+    });
+  },
+  refresh: async (refreshToken: string) => {
+    return request<{
+      user: { id: string; email: string };
+      session: { access_token: string; refresh_token: string };
+    }>('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
     });
   },
   signup: async (data: { email: string; password: string; full_name?: string }) => {
