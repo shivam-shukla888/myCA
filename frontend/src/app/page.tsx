@@ -9,6 +9,7 @@ export default function SurfacePage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -19,8 +20,9 @@ export default function SurfacePage() {
         ]);
         setTransactions(txRes.transactions || []);
         setDocuments(docRes.documents || []);
-      } catch (err) {
-        console.error('Error loading surface data:', err);
+      } catch (err: any) {
+        setError(err.message || 'Unable to connect to backend service.');
+        console.warn('Notice: Backend data fetch deferred:', err.message);
       } finally {
         setLoading(false);
       }

@@ -41,8 +41,8 @@ export default function VaultPage() {
     try {
       const res = await documentApi.list({ limit: 50 });
       setDocuments(res.documents || []);
-    } catch (err) {
-      console.error('Failed to load documents:', err);
+    } catch (err: any) {
+      console.warn('Notice: Failed to load documents:', err?.message || err);
     } finally {
       setLoading(false);
     }

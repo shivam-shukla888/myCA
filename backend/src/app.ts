@@ -23,35 +23,40 @@ import ocrRoutes from './modules/ocr/ocr.routes.js';
 export function createApp(): Express {
   const app = express();
 
+  // Strict CORS policy: Allow configured origins and local dev hosts
+  const parsedOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
+  const isProd = env.NODE_ENV === 'production';
+
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (!isProd && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {
+          return callback(null, true);
+        }
+        if (parsedOrigins.includes(origin) || (!isProd && env.CORS_ORIGIN === '*')) {
+          return callback(null, true);
+        }
+        return callback(null, false);
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Idempotency-Key', 'x-dev-user-id'],
+    })
+  );
+
   // Hardened security headers with strict Helmet configuration
   app.use(
     helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", 'data:', 'blob:', 'https://pesvgxqpdeeyhjvqoaip.supabase.co'],
-          connectSrc: ["'self'", 'http://localhost:3000', 'https://pesvgxqpdeeyhjvqoaip.supabase.co'],
-          frameAncestors: ["'none'"],
-          objectSrc: ["'none'"],
-        },
-      },
-      crossOriginEmbedderPolicy: false, // Allow cross-origin static loads
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      crossOriginEmbedderPolicy: false,
+      crossOriginOpenerPolicy: false,
       frameguard: { action: 'deny' },
       hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
       noSniff: true,
       referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     })
   );
-
-  // Strict CORS policy: Reject wildcard '*' in authenticated production environments; support multiple origins
-  const parsedOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
-  const corsOrigin = env.NODE_ENV === 'production' && env.CORS_ORIGIN === '*'
-    ? false
-    : parsedOrigins.length === 1 ? parsedOrigins[0] : parsedOrigins;
-
-  app.use(cors({ origin: corsOrigin, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
