@@ -29,9 +29,9 @@ Backend API (Node.js + Express + TypeScript on Render / Railway)
    │     └─► Private Storage Bucket (`user-documents`, 15m signed URLs)
    │
    └─► Multi-Tier AI Provider Abstraction
-         ├─► [Tier 1 - Canonical]: Google Gemini (gemini-2.5-flash)
-         ├─► [Tier 2 - Failover]: SambaNova (Llama 3.3 70B) / Groq (GPT-OSS 120B)
-         └─► [Tier 3 - Safety]: MockAIProvider (deterministic safety harness)
+         ├─► [Tier 1 - Primary]: Groq (openai/gpt-oss-120b)
+         ├─► [Tier 2 - Failover]: Google Gemini (gemini-2.5-flash)
+         └─► [Tier 3 - Safety]: MockAIProvider (test & offline safety harness)
 ```
 
 ---

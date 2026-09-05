@@ -5,8 +5,7 @@ const app = createApp();
 
 const server = app.listen(env.PORT, () => {
   console.log(`[BACKEND_API] Personal AI CA Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
-  console.log(`[BACKEND_API] Health check available at: http://localhost:${env.PORT}/health`);
-  console.log(`[BACKEND_API] Warning: Running in DEVELOPMENT-ONLY / AUTH-FREE mode until Step 4`);
+  console.log(`[BACKEND_API] Zero-Trust Authentication Active on all core APIs`);
 });
 
 process.on('SIGTERM', () => {

@@ -66,8 +66,8 @@ Designed to bridge the gap between complex tax regulations and daily financial d
 ## 🎯 Core Technical Highlights
 
 ### 1. Multi-Tiered Resilient AI Orchestration
-- **Primary Inference (Google Gemini)**: Structured reasoning engine using `@google/genai` with strict Zod schema validation and temperature tuning for financial accuracy.
-- **Zero-Downtime Failover (Groq / SambaNova Llama 3.3 70B)**: Real-time fallback handler that automatically catches upstream API latency or outages and re-routes requests without user interruption.
+- **Primary Inference (Groq openai/gpt-oss-120b)**: Ultra-low latency reasoning engine using Groq OpenAI-compatible endpoints with strict Zod schema validation and temperature tuning for financial accuracy.
+- **Zero-Downtime Failover (Google Gemini 2.5-Flash)**: Real-time fallback handler that automatically catches upstream API latency or outages and re-routes requests without user interruption.
 - **Deterministic Guardrails**: Safe fallback provider preventing hallucinated advice when regulatory thresholds or uncertain financial intents are queried.
 
 ### 2. Bank-Grade Security & Cryptography

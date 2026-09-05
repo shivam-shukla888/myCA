@@ -20,27 +20,30 @@ describe('Step 7 — Performance, Idempotency & Job Lifecycle Tests', () => {
       .post('/api/v1/jobs/create')
       .set('Authorization', `Bearer ${userAToken}`)
       .send({
-        type: 'DOCUMENT_OCR_EXTRACTION',
-        data: { document_id: 'doc-777-test' },
+        type: 'FISCAL_REPORT_SYNTHESIS',
+        data: { financial_year: '2025-26' },
       });
 
     assert.strictEqual(res.status, 202);
-    assert.strictEqual(res.body.data.type, 'DOCUMENT_OCR_EXTRACTION');
+    assert.strictEqual(res.body.data.type, 'FISCAL_REPORT_SYNTHESIS');
     assert.ok(res.body.data.job_id);
 
     const jobId = res.body.data.job_id;
 
-    // Wait 1 second for worker execution
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Poll for worker execution (up to 3 seconds)
+    let pollRes;
+    for (let i = 0; i < 6; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      pollRes = await request(app)
+        .get(`/api/v1/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${userAToken}`);
+      if (pollRes.body.data?.status === 'COMPLETED') break;
+    }
 
-    const pollRes = await request(app)
-      .get(`/api/v1/jobs/${jobId}`)
-      .set('Authorization', `Bearer ${userAToken}`);
-
-    assert.strictEqual(pollRes.status, 200);
-    assert.strictEqual(pollRes.body.data.status, 'COMPLETED');
-    assert.ok(pollRes.body.data.result);
-    assert.ok(pollRes.body.data.result.extracted_text.includes('FORM 16'));
+    assert.strictEqual(pollRes!.status, 200);
+    assert.strictEqual(pollRes!.body.data.status, 'COMPLETED');
+    assert.ok(pollRes!.body.data.result);
+    assert.strictEqual(pollRes!.body.data.result.report_type, 'tax_dossier_summary');
     console.log('[PASS] TEST 1: Background job lifecycle (QUEUED -> COMPLETED) verified');
   });
 
