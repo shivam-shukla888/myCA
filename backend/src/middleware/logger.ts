@@ -35,12 +35,18 @@ export function redactSensitiveData(obj: any): any {
     if (SENSITIVE_KEYS.has(lowerKey)) {
       redacted[key] = '[REDACTED]';
     } else if (typeof value === 'string') {
+      // Redact inline credentials/passwords/tokens
+      let cleaned = value.replace(/(?:password|token|secret|api[_-]?key)\s*(?:is|:|=)\s*([^\s,;]+)/gi, (match) => {
+        const prefix = match.split(/(?:is|:|=)/i)[0];
+        const sep = match.match(/(?:is|:|=)/i)?.[0] || ':';
+        return `${prefix}${sep} [REDACTED]`;
+      });
       // Regex check for PAN pattern (5 letters, 4 digits, 1 letter)
-      let cleaned = value.replace(/[A-Z]{5}[0-9]{4}[A-Z]{1}/gi, '[REDACTED_PAN]');
+      cleaned = cleaned.replace(/[A-Z]{5}[0-9]{4}[A-Z]{1}/gi, '[REDACTED_PAN]');
       // Regex check for GSTIN pattern (2 digits, 5 letters, 4 digits, 1 letter, 1 alphanumeric, Z, 1 alphanumeric)
       cleaned = cleaned.replace(/[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}/gi, '[REDACTED_GSTIN]');
-      // Regex check for JWT tokens
-      cleaned = cleaned.replace(/eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, '[REDACTED_JWT]');
+      // Regex check for JWT tokens or base64 JWT fragments
+      cleaned = cleaned.replace(/eyJ[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*/g, '[REDACTED_JWT]');
       redacted[key] = cleaned;
     } else if (typeof value === 'object') {
       redacted[key] = redactSensitiveData(value);

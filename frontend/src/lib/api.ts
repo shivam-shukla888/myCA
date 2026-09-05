@@ -293,11 +293,63 @@ export interface ChatResponse {
   conversation_id: string;
 }
 
+export interface MonthlyReviewResponse extends ChatResponse {
+  deterministic_context?: {
+    month: string;
+    has_financial_profile: boolean;
+    has_monthly_data: boolean;
+    has_goals: boolean;
+    has_allocation_plan: boolean;
+    has_freedom_data: boolean;
+    has_emergency_data: boolean;
+    current_month: {
+      income: number;
+      expenses: number;
+      surplus: number;
+      savings_rate: number;
+      top_expense_categories: Array<{ category: string; amount: number; percentage: number }>;
+    };
+    allocation?: {
+      emergency_fund_target: number;
+      emergency_fund_current: number;
+      emergency_gap: number;
+      current_monthly_allocation: {
+        emergency_fund: number;
+        goals: number;
+        long_term: number;
+        buffer: number;
+      };
+    };
+    financial_freedom?: {
+      current_wealth: number;
+      indicative_target_corpus: number;
+      projected_wealth: number;
+      funding_gap: number;
+      required_monthly_contribution: number;
+      target_age: number;
+      selected_scenario: string;
+      on_track: boolean;
+    };
+    goals: Array<{
+      id: string;
+      title: string;
+      target_amount: number;
+      current_amount: number;
+    }>;
+  };
+}
+
 export const chatApi = {
   sendMessage: async (message: string, conversationId?: string) => {
     return request<ChatResponse>('/chat', {
       method: 'POST',
       body: JSON.stringify({ message, conversation_id: conversationId }),
+    });
+  },
+  getMonthlyReview: async (month?: string, conversationId?: string) => {
+    return request<MonthlyReviewResponse>('/chat/review', {
+      method: 'POST',
+      body: JSON.stringify({ month, conversation_id: conversationId }),
     });
   },
 };

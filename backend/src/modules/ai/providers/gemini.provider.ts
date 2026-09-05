@@ -13,8 +13,9 @@ export class GeminiProvider implements AIProvider {
   private readonly modelName = 'gemini-2.5-flash';
 
   constructor() {
-    if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.length > 5) {
-      this.client = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+    const key = process.env.GEMINI_API_KEY || '';
+    if (key && key.length > 5) {
+      this.client = new GoogleGenAI({ apiKey: key });
     }
   }
 

@@ -15,6 +15,20 @@ export class ChatController {
       next(err);
     }
   }
+
+  async getMonthlyReview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return next(new AppError('Unauthorized', 401, 'UNAUTHORIZED'));
+      }
+      const result = await chatService.generateMonthlyReview(userId, req.body || {});
+      res.status(200).json({ data: result });
+    } catch (err) {
+      console.error('getMonthlyReview error:', err);
+      next(err);
+    }
+  }
 }
 
 export const chatController = new ChatController();

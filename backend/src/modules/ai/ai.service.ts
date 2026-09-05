@@ -40,8 +40,9 @@ export class AIService {
     this.geminiProvider = new GeminiProvider();
 
     // TIER 1 — PRIMARY AI PROVIDER (Groq)
+    const effectiveGroqKey = process.env.GROQ_API_KEY || '';
     this.groqProvider = new OpenAICompatibleProvider({
-      apiKey: env.GROQ_API_KEY,
+      apiKey: effectiveGroqKey,
       baseUrl: 'https://api.groq.com/openai/v1',
       model: env.GROQ_MODEL,
       providerName: 'Groq',
@@ -59,11 +60,12 @@ export class AIService {
     // 2. If Groq is not configured, check if Gemini alone is configured (Tier 2).
     // 3. MockAIProvider is strictly for development/test mode (Tier 3).
     // In production, if neither external provider is configured, fail closed.
+    const isProduction = process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production';
     if (this.groqProvider.isAvailable()) {
       this.activeProvider = this.fallbackProvider;
     } else if (this.geminiProvider.isAvailable()) {
       this.activeProvider = this.geminiProvider;
-    } else if (env.NODE_ENV === 'production') {
+    } else if (isProduction) {
       this.activeProvider = {
         getModelName: () => 'unconfigured-provider',
         isAvailable: () => false,

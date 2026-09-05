@@ -15,7 +15,8 @@
     "test:phase1": "tsx tests/phase1_production_integrity.test.ts",
     "test:monthly": "tsx tests/step2_monthly_money.test.ts",
     "test:allocation": "tsx tests/step3_allocation.test.ts",
-    "test:freedom": "tsx tests/step4_freedom.test.ts"
+    "test:freedom": "tsx tests/step4_freedom.test.ts",
+    "test:coach": "tsx tests/step5_coach.test.ts"
   },
   "keywords": [
     "personal-ai-ca",

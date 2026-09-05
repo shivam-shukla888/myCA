@@ -18,8 +18,23 @@ export type IntentCategory = (typeof INTENT_CATEGORIES)[number];
 export const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'UNKNOWN'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
+export const EVIDENCE_SOURCE_TYPES = [
+  'transaction',
+  'goal',
+  'document',
+  'calculation',
+  'domain_knowledge',
+  'monthly_summary',
+  'allocation_plan',
+  'financial_profile',
+  'financial_freedom_status',
+  'affordability_evaluation',
+] as const;
+
+export type EvidenceSourceType = (typeof EVIDENCE_SOURCE_TYPES)[number];
+
 export const evidenceSourceSchema = z.object({
-  source_type: z.enum(['transaction', 'goal', 'document', 'calculation', 'domain_knowledge']),
+  source_type: z.enum(EVIDENCE_SOURCE_TYPES),
   source_id: z.string().optional(),
   claim: z.string().min(1),
 });
@@ -54,7 +69,10 @@ export const geminiResponseSchema = {
       items: {
         type: 'object',
         properties: {
-          source_type: { type: 'string', enum: ['transaction', 'goal', 'document', 'calculation', 'domain_knowledge'] },
+          source_type: {
+            type: 'string',
+            enum: EVIDENCE_SOURCE_TYPES,
+          },
           source_id: { type: 'string' },
           claim: { type: 'string' },
         },

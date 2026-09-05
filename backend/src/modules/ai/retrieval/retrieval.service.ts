@@ -2,6 +2,10 @@ import { getSupabaseAdminClient } from '../../../config/supabase.js';
 import { transactionService } from '../../transactions/transaction.service.js';
 import { documentService } from '../../documents/document.service.js';
 import { IntentCategory } from '../schemas/aiResponse.schema.js';
+import {
+  financialContextService,
+  DeterministicFinancialContext,
+} from '../financialContext.service.js';
 
 export interface RetrievedContext {
   userId: string;
@@ -39,6 +43,7 @@ export interface RetrievedContext {
     transaction_count: number;
     tax_relevant_count: number;
   };
+  deterministic_financial_context?: DeterministicFinancialContext;
   missing_evidence: string[];
 }
 
@@ -144,7 +149,44 @@ export class RetrievalService {
       };
     }
 
-    const has_evidence = transactions.length > 0 || documents.length > 0 || goals.length > 0;
+    // 5. Deterministic Financial Context (Phase 2, Phase 3, Phase 4 & Affordability)
+    let deterministic_financial_context: DeterministicFinancialContext | undefined = undefined;
+    if (
+      intent === 'PERSONAL_FINANCE' ||
+      intent === 'TRANSACTION_ANALYSIS' ||
+      intent === 'GENERAL_FINANCE'
+    ) {
+      try {
+        deterministic_financial_context = await financialContextService.buildDeterministicContext(userId);
+
+        // Check if query is asking about affordability
+        const affordabilityCheck = financialContextService.parseAffordabilityQuery(query);
+        if (affordabilityCheck.isAffordabilityQuery && affordabilityCheck.amount) {
+          const evalResult = financialContextService.evaluateAffordability(
+            deterministic_financial_context,
+            affordabilityCheck.amount,
+            affordabilityCheck.itemDescription
+          );
+          deterministic_financial_context.affordability = evalResult;
+        }
+
+        if (deterministic_financial_context.missing_data_reasons.length > 0) {
+          missing_evidence.push(...deterministic_financial_context.missing_data_reasons);
+        }
+      } catch {
+        // Safe fallback
+      }
+    }
+
+    const has_evidence =
+      transactions.length > 0 ||
+      documents.length > 0 ||
+      goals.length > 0 ||
+      Boolean(
+        deterministic_financial_context &&
+          (deterministic_financial_context.has_monthly_data ||
+            deterministic_financial_context.has_financial_profile)
+      );
 
     return {
       userId,
@@ -153,6 +195,7 @@ export class RetrievalService {
       documents,
       goals,
       deterministic_calculation,
+      deterministic_financial_context,
       missing_evidence,
     };
   }

@@ -14,3 +14,13 @@ export const sendChatSchema = z.object({
 });
 
 export type SendChatInput = z.infer<typeof sendChatSchema>;
+
+export const monthlyReviewSchema = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/, 'Month must be in YYYY-MM format')
+    .optional(),
+  conversation_id: z.string().uuid('Invalid conversation UUID').optional(),
+});
+
+export type MonthlyReviewInput = z.infer<typeof monthlyReviewSchema>;

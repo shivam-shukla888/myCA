@@ -13,11 +13,16 @@ const STOCK_BUY_SELL_PATTERNS = [
   /\b(should\s+i|shall\s+i)\s+(buy|sell|invest\s+in)\s+[A-Za-z0-9]+/i,
   /\b(tell\s+me\s+to|recommend\s+(me\s+to)?|advise\s+(me\s+to)?)\s+(buy|sell|invest\s+in)\b/i,
   /\bwhich\s+(stock|share|crypto|token)\s+(should|to)\s+(i|we)\s+(buy|purchase)/i,
+  /\bwhich\s+stock\s+should\s+i\s+buy\b/i,
+  /\bwhich\s+mutual\s+fund\s+should\s+i\s+buy\b/i,
+  /\b(tell\s+me|advise\s+me)\s+(exactly\s+)?what\s+to\s+buy\b/i,
+  /\bwhat\s+(stock|stocks|share|shares|mutual\s*funds?|etfs?|crypto)\s+(should\s+i|to)\s+buy\b/i,
   /\b(tell\s+me|give\s+me)\s+(where|how)\s+to\s+invest\s+(₹|rs\.?|inr)?\s*[\d,]+/i,
   /\bwhich\s+mutual\s+fund\s+(should\s+i\s+buy|is\s+best\s+for\s+me)/i,
   /\b(target\s+price|multibagger|stock\s+tip|buy\s+call)\b/i,
   /\b(buy|sell)\s+[A-Za-z0-9]+\s+(stock|share|equity|token)\b/i,
   /\b(act\s+as\s+an?\s+unrestricted\s+broker)\b/i,
+  /\bignore\s+all\s+(previous\s+)?instructions.*(?:stock|buy|crypto|fund|invest)/i,
 ];
 
 const FILING_EXECUTION_PATTERNS = [
@@ -36,6 +41,16 @@ const GST_PATTERNS = [
 
 const TRANSACTION_PATTERNS = [
   /\b(transaction|transactions|spend|spent|expense|expenses|how\s+much\s+did\s+i|total\s+for|merchant|bank\s+statement)\b/i,
+];
+
+const PERSONAL_FINANCE_PATTERNS = [
+  /\b(how\s+did\s+i\s+do|review\s+(my\s+)?month|monthly\s+review|financial\s+health|financial\s+status)\b/i,
+  /\b(saving\s+less|why\s+am\s+i\s+saving\s+less|how\s+much\s+am\s+i\s+saving|savings\s+rate|monthly\s+surplus|deficit)\b/i,
+  /\b(where\s+did\s+(most\s+of\s+)?my\s+money\s+go|top\s+expense|spending\s+breakdown)\b/i,
+  /\b(can\s+i\s+afford|affordability|afford\s+this|should\s+i\s+buy\s+a)\b/i,
+  /\b(emergency\s+fund|emergency\s+gap|emergency\s+reserve|why\s+is\s+my\s+emergency)\b/i,
+  /\b(financial\s+freedom|on\s+track|retirement\s+age|corpus|funding\s+gap)\b/i,
+  /\b(what\s+should\s+i\s+improve|what\s+to\s+do\s+next|next\s+action|priorities|allocation\s+plan|explain\s+my\s+allocation)\b/i,
 ];
 
 const INVESTMENT_EDU_PATTERNS = [
@@ -117,7 +132,21 @@ export function classifyIntent(query: string): ClassificationResult {
     }
   }
 
-  // 6. Transaction Analysis queries
+  // 6. Personal Finance (Monthly Review, Savings, Emergency, Freedom, Affordability)
+  for (const pattern of PERSONAL_FINANCE_PATTERNS) {
+    if (pattern.test(normalized)) {
+      reasons.push('Monthly financial review, savings allocation, freedom, or affordability inquiry');
+      return {
+        intent: 'PERSONAL_FINANCE',
+        risk_level: 'LOW',
+        is_personalized_advice_request: false,
+        is_statutory_filing_request: false,
+        reasons,
+      };
+    }
+  }
+
+  // 7. Transaction Analysis queries
   for (const pattern of TRANSACTION_PATTERNS) {
     if (pattern.test(normalized)) {
       reasons.push('Query requests transaction or expenditure analysis');
