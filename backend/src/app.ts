@@ -16,6 +16,7 @@ import { reportRoutes } from './modules/reports/report.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { allocationRoutes } from './modules/allocation/allocation.routes.js';
 import freedomRoutes from './modules/freedom/freedom.routes.js';
+import actionRoutes from './modules/action/action.routes.js';
 import jobRoutes from './modules/jobs/job.routes.js';
 
 export function createApp(): Express {
@@ -81,6 +82,7 @@ export function createApp(): Express {
   app.use('/api/v1/transactions', standardApiRateLimiter, requireAuth, transactionRoutes);
   app.use('/api/v1/allocation', standardApiRateLimiter, requireAuth, allocationRoutes);
   app.use('/api/v1/freedom', standardApiRateLimiter, requireAuth, freedomRoutes);
+  app.use('/api/v1/action', standardApiRateLimiter, requireAuth, actionRoutes);
   app.use('/api/v1/documents', standardApiRateLimiter, requireAuth, documentRoutes);
   app.use('/api/v1/chat', aiRateLimiter, requireAuth, chatRoutes);
   app.use('/api/v1/reports', standardApiRateLimiter, requireAuth, reportRoutes);

@@ -1,6 +1,7 @@
 import { transactionService } from '../transactions/transaction.service.js';
 import { allocationService } from '../allocation/allocation.service.js';
 import { freedomService } from '../freedom/freedom.service.js';
+import { actionService } from '../action/action.service.js';
 
 export interface AffordabilityEvaluation {
   proposed_amount: number;
@@ -76,6 +77,11 @@ export interface DeterministicFinancialContext {
     current_amount: number;
     target_date?: string;
   }>;
+  action_plan?: {
+    surplus: number;
+    actions: Array<{ priority: string; title: string; allocated_amount: number; why_rationale: string }>;
+    total_allocated: number;
+  };
   affordability?: AffordabilityEvaluation;
   missing_data_reasons: string[];
 }
@@ -276,6 +282,25 @@ export class FinancialContextService {
         },
         on_track: active.status === 'On Track' || active.status === 'Ahead of Target',
       };
+    }
+
+    // 5. Phase 6 Action Engine Plan
+    try {
+      const plan = await actionService.getActionPlanForMonth(userId, month);
+      if (plan) {
+        context.action_plan = {
+          surplus: plan.monthly_surplus,
+          actions: plan.actions.map((a) => ({
+            priority: a.priority,
+            title: a.title,
+            allocated_amount: a.allocated_amount,
+            why_rationale: a.why_rationale,
+          })),
+          total_allocated: plan.allocations.total_allocated,
+        };
+      }
+    } catch {
+      // Action plan unavailable
     }
 
     return context;

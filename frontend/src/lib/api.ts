@@ -616,3 +616,132 @@ export const freedomApi = {
   },
 };
 
+// 9. Financial Action Engine APIs
+export interface ActionItem {
+  priority: 'P0_DEFICIT' | 'P1_EMERGENCY_FUND' | 'P2_DEBT' | 'P3_GOALS' | 'P4_WEALTH' | 'P5_BUFFER';
+  priority_label: string;
+  category: 'emergency_fund' | 'debt' | 'goals' | 'long_term_wealth' | 'flexible_buffer' | 'deficit_stabilization';
+  title: string;
+  allocated_amount: number;
+  required_amount: number;
+  target_gap: number;
+  why_rationale: string;
+  is_funded: boolean;
+  metadata?: Record<string, any>;
+}
+
+export interface RankedGoalActionItem {
+  id: string;
+  title: string;
+  target_amount: number;
+  current_amount: number;
+  remaining_amount: number;
+  target_date: string | null;
+  months_remaining: number;
+  required_monthly_contribution: number;
+  priority_rank: number;
+  allocated_amount: number;
+  ranking_rationale: string;
+  is_user_prioritized: boolean;
+  is_paused: boolean;
+}
+
+export interface UserActionOverride {
+  custom_emergency_allocation?: number;
+  prioritized_goal_id?: string;
+  goal_priority_order?: string[];
+  paused_goal_ids?: string[];
+  custom_buffer_amount?: number;
+  custom_wealth_allocation?: number;
+}
+
+export interface DeficitAnalysis {
+  is_deficit: boolean;
+  monthly_deficit: number;
+  essential_expense_ratio: number;
+  debt_pressure_ratio: number;
+  largest_spending_category?: {
+    category: string;
+    amount: number;
+    percentage: number;
+  };
+  recommended_actions: string[];
+}
+
+export interface ActionFreedomComparison {
+  current_monthly_contribution: number;
+  required_monthly_contribution: number;
+  contribution_gap: number;
+  on_track: boolean;
+  target_corpus: number;
+  projected_wealth: number;
+  target_age: number;
+  selected_scenario: string;
+  assumption_disclaimer: string;
+}
+
+export interface ActionPlan {
+  id?: string;
+  user_id?: string;
+  month: string;
+  monthly_income: number;
+  monthly_expenses: number;
+  monthly_surplus: number;
+  is_deficit: boolean;
+  actions: ActionItem[];
+  ranked_goals: RankedGoalActionItem[];
+  allocations: {
+    emergency_fund: number;
+    goals: number;
+    long_term_wealth: number;
+    flexible_buffer: number;
+    total_allocated: number;
+  };
+  invariant_verified: boolean;
+  deficit_analysis?: DeficitAnalysis;
+  financial_freedom: ActionFreedomComparison;
+  user_override_applied: boolean;
+  user_overrides?: UserActionOverride;
+  baseline_plan?: Omit<ActionPlan, 'baseline_plan'>;
+  primary_summary: string;
+  confirmed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SimulateActionPlanInput {
+  month?: string;
+  surplus_delta?: number;
+  expense_delta?: number;
+  simulated_emergency_months?: number;
+  overrides?: UserActionOverride;
+}
+
+export const actionApi = {
+  getPlan: async (month?: string) => {
+    const query = month ? `?month=${encodeURIComponent(month)}` : '';
+    return request<ActionPlan>(`/action/plan${query}`);
+  },
+  generatePlan: async (month?: string, overrides?: UserActionOverride) => {
+    return request<ActionPlan>('/action/plan', {
+      method: 'POST',
+      body: JSON.stringify({ month, overrides }),
+    });
+  },
+  confirmPlan: async (month: string, overrides?: UserActionOverride) => {
+    return request<ActionPlan>('/action/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ month, overrides }),
+    });
+  },
+  simulate: async (data: SimulateActionPlanInput) => {
+    return request<ActionPlan>('/action/simulate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  getHistory: async () => {
+    return request<ActionPlan[]>('/action/history');
+  },
+};
+

@@ -4,11 +4,13 @@ import React, { useEffect, useState, useMemo } from 'react';
 import {
   allocationApi,
   freedomApi,
+  actionApi,
   FinancialProfile,
   FinancialGoal,
   MonthlyAllocationPlan,
+  ActionPlan,
   FreedomAnalysisResponse,
-  FreedomScenarioResult,
+  UserActionOverride,
 } from '../../lib/api';
 import {
   Sliders,
@@ -17,7 +19,6 @@ import {
   Target,
   TrendingUp,
   Wallet,
-  Calendar,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -27,8 +28,11 @@ import {
   AlertCircle,
   Clock,
   Sparkles,
-  ArrowRight,
   RefreshCw,
+  Lock,
+  RotateCcw,
+  Check,
+  Zap,
 } from 'lucide-react';
 
 export default function PlanPage() {
@@ -42,10 +46,27 @@ export default function PlanPage() {
   const [profile, setProfile] = useState<FinancialProfile | null>(null);
   const [goals, setGoals] = useState<FinancialGoal[]>([]);
   const [currentPlan, setCurrentPlan] = useState<MonthlyAllocationPlan | null>(null);
-  const [history, setHistory] = useState<MonthlyAllocationPlan[]>([]);
+  const [actionPlan, setActionPlan] = useState<ActionPlan | null>(null);
+  const [actionHistory, setActionHistory] = useState<ActionPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [planLoading, setPlanLoading] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
+
+  // User Overrides State
+  const [isOverrideOpen, setIsOverrideOpen] = useState(false);
+  const [overrideEmergency, setOverrideEmergency] = useState<string>('');
+  const [overridePrioritizedGoal, setOverridePrioritizedGoal] = useState<string>('');
+  const [overrideBuffer, setOverrideBuffer] = useState<string>('');
+  const [pausedGoals, setPausedGoals] = useState<string[]>([]);
+
+  // What-If Simulation State
+  const [simSurplusDelta, setSimSurplusDelta] = useState<number>(0);
+  const [simExpenseDelta, setSimExpenseDelta] = useState<number>(0);
+  const [simEmergencyMonths, setSimEmergencyMonths] = useState<number>(6);
+  const [simulatedPlan, setSimulatedPlan] = useState<ActionPlan | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
 
   // Profile Form State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -61,20 +82,8 @@ export default function PlanPage() {
   const [formTargetAge, setFormTargetAge] = useState('55');
   const [formDesiredIncome, setFormDesiredIncome] = useState('100000');
 
-  // Phase 4: Freedom Calculator & What-If Simulator State
+  // Phase 4: Freedom Calculator State
   const [freedomData, setFreedomData] = useState<FreedomAnalysisResponse | null>(null);
-  const [freedomLoading, setFreedomLoading] = useState(false);
-  const [freedomError, setFreedomError] = useState<string | null>(null);
-
-  // What-If Interactive Controls
-  const [simTargetAge, setSimTargetAge] = useState<number>(55);
-  const [simExtraSavings, setSimExtraSavings] = useState<number>(0);
-  const [simInflationRate, setSimInflationRate] = useState<number>(6.0);
-  const [simReturnRate, setSimReturnRate] = useState<number>(10.0);
-  const [simWithdrawalRate, setSimWithdrawalRate] = useState<number>(4.0);
-  const [simActiveScenario, setSimActiveScenario] = useState<'conservative' | 'base' | 'optimistic'>('base');
-  const [isSavingAssumptions, setIsSavingAssumptions] = useState(false);
-  const [assumptionSavedMsg, setAssumptionSavedMsg] = useState<string | null>(null);
 
   // Goal Form State
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
@@ -96,16 +105,18 @@ export default function PlanPage() {
     const newY = d.getUTCFullYear();
     const newM = String(d.getUTCMonth() + 1).padStart(2, '0');
     setCurrentMonth(`${newY}-${newM}`);
+    setSimulatedPlan(null);
   }
 
   async function loadInitialData() {
     setLoading(true);
     setError(null);
     try {
-      const [profRes, goalsRes, historyRes] = await Promise.all([
+      const [profRes, goalsRes, historyRes, actHistoryRes] = await Promise.all([
         allocationApi.getProfile(),
         allocationApi.listGoals(),
         allocationApi.listPlanHistory(),
+        actionApi.getHistory().catch(() => []),
       ]);
 
       if (profRes) {
@@ -121,27 +132,18 @@ export default function PlanPage() {
         setFormTargetMonths(String(profRes.emergency_fund_target_months || 6));
         setFormTargetAge(profRes.target_retirement_age ? String(profRes.target_retirement_age) : '55');
         setFormDesiredIncome(String(profRes.desired_monthly_lifestyle_income || 0));
+        setSimEmergencyMonths(profRes.emergency_fund_target_months || 6);
       }
 
       setGoals(goalsRes || []);
-      setHistory(historyRes || []);
+      setActionHistory(actHistoryRes || []);
 
-      // Load Phase 4 Freedom Calculator status
+      // Freedom Calculator status
       try {
-        setFreedomLoading(true);
         const freedomRes = await freedomApi.getStatus();
         setFreedomData(freedomRes);
-        if (freedomRes) {
-          setSimTargetAge(freedomRes.target_age);
-          setSimInflationRate(freedomRes.active_scenario.inflation_rate_pct);
-          setSimReturnRate(freedomRes.active_scenario.expected_return_pct);
-          setSimWithdrawalRate(freedomRes.active_scenario.withdrawal_rate_pct);
-          setSimActiveScenario(freedomRes.active_scenario_name);
-        }
-      } catch (fErr: any) {
-        setFreedomError(fErr.message || 'Failed to load freedom status');
-      } finally {
-        setFreedomLoading(false);
+      } catch {
+        // Freedom unconfigured
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load allocation data');
@@ -150,82 +152,28 @@ export default function PlanPage() {
     }
   }
 
-  async function runSimulation(overrides?: {
-    targetAge?: number;
-    extraSavings?: number;
-    inflationRate?: number;
-    returnRate?: number;
-    withdrawalRate?: number;
-    scenario?: 'conservative' | 'base' | 'optimistic';
-  }) {
-    if (!profile && !freedomData) return;
-    try {
-      const ageToUse = overrides?.targetAge ?? simTargetAge;
-      const extraToUse = overrides?.extraSavings ?? simExtraSavings;
-      const infToUse = overrides?.inflationRate ?? simInflationRate;
-      const retToUse = overrides?.returnRate ?? simReturnRate;
-      const withToUse = overrides?.withdrawalRate ?? simWithdrawalRate;
-      const scenToUse = overrides?.scenario ?? simActiveScenario;
-
-      const baseSurplus = freedomData?.current_monthly_surplus ?? (currentPlan?.monthly_surplus || 0);
-      const simulatedMonthlyContribution = Math.max(baseSurplus + extraToUse, 0);
-
-      const simRes = await freedomApi.simulate({
-        target_age: ageToUse,
-        monthly_contribution: simulatedMonthlyContribution,
-        inflation_rate: infToUse,
-        expected_return: retToUse,
-        withdrawal_rate: withToUse,
-        scenario: scenToUse,
-      });
-
-      setFreedomData(simRes);
-    } catch (err: any) {
-      console.error('Simulation error:', err);
-    }
-  }
-
-  async function handleSaveAssumptions() {
-    setIsSavingAssumptions(true);
-    setAssumptionSavedMsg(null);
-    try {
-      await freedomApi.saveAssumptions({
-        planning_inflation_rate: simInflationRate,
-        planning_expected_return: simReturnRate,
-        planning_withdrawal_rate: simWithdrawalRate,
-        planning_scenario: simActiveScenario,
-      });
-      setAssumptionSavedMsg('Planning assumptions saved to profile.');
-      setTimeout(() => setAssumptionSavedMsg(null), 4000);
-    } catch (err: any) {
-      alert(`Failed to save assumptions: ${err.message}`);
-    } finally {
-      setIsSavingAssumptions(false);
-    }
-  }
-
-  async function loadOrGeneratePlan(month: string) {
+  async function loadOrGenerateActionPlan(month: string, overrides?: UserActionOverride) {
     setPlanLoading(true);
     setError(null);
     try {
-      // First check if an existing plan exists
-      let plan: MonthlyAllocationPlan | null = null;
-      try {
-        plan = await allocationApi.getPlanForMonth(month);
-      } catch {
-        plan = null;
+      const plan = await actionApi.generatePlan(month, overrides);
+      setActionPlan(plan);
+      if (plan.user_overrides?.custom_emergency_allocation !== undefined) {
+        setOverrideEmergency(String(plan.user_overrides.custom_emergency_allocation));
       }
-
-      // If no plan, auto-generate deterministic plan
-      if (!plan) {
-        plan = await allocationApi.generatePlan(month);
+      if (plan.user_overrides?.custom_buffer_amount !== undefined) {
+        setOverrideBuffer(String(plan.user_overrides.custom_buffer_amount));
       }
-
-      setCurrentPlan(plan);
-      const historyRes = await allocationApi.listPlanHistory();
-      setHistory(historyRes || []);
+      if (plan.user_overrides?.prioritized_goal_id) {
+        setOverridePrioritizedGoal(plan.user_overrides.prioritized_goal_id);
+      }
+      if (plan.user_overrides?.paused_goal_ids) {
+        setPausedGoals(plan.user_overrides.paused_goal_ids);
+      }
+      const actHistoryRes = await actionApi.getHistory().catch(() => []);
+      setActionHistory(actHistoryRes || []);
     } catch (err: any) {
-      setError(err.message || 'Failed to compute monthly allocation plan');
+      setError(err.message || 'Failed to compute action plan');
     } finally {
       setPlanLoading(false);
     }
@@ -236,8 +184,74 @@ export default function PlanPage() {
   }, []);
 
   useEffect(() => {
-    loadOrGeneratePlan(currentMonth);
+    loadOrGenerateActionPlan(currentMonth);
   }, [currentMonth]);
+
+  async function handleApplyOverrides() {
+    const overrides: UserActionOverride = {};
+    if (overrideEmergency !== '') {
+      const val = parseFloat(overrideEmergency);
+      if (!isNaN(val) && val >= 0) overrides.custom_emergency_allocation = val;
+    }
+    if (overrideBuffer !== '') {
+      const val = parseFloat(overrideBuffer);
+      if (!isNaN(val) && val >= 0) overrides.custom_buffer_amount = val;
+    }
+    if (overridePrioritizedGoal) {
+      overrides.prioritized_goal_id = overridePrioritizedGoal;
+    }
+    if (pausedGoals.length > 0) {
+      overrides.paused_goal_ids = pausedGoals;
+    }
+
+    await loadOrGenerateActionPlan(currentMonth, Object.keys(overrides).length > 0 ? overrides : undefined);
+    setNotificationMsg('Custom priorities applied to action plan.');
+    setTimeout(() => setNotificationMsg(null), 4000);
+  }
+
+  async function handleResetOverrides() {
+    setOverrideEmergency('');
+    setOverrideBuffer('');
+    setOverridePrioritizedGoal('');
+    setPausedGoals([]);
+    await loadOrGenerateActionPlan(currentMonth);
+    setNotificationMsg('Plan reset to deterministic priority baseline.');
+    setTimeout(() => setNotificationMsg(null), 4000);
+  }
+
+  async function handleConfirmPlan() {
+    setConfirmLoading(true);
+    try {
+      const confirmed = await actionApi.confirmPlan(currentMonth, actionPlan?.user_overrides);
+      setActionPlan(confirmed);
+      const actHistoryRes = await actionApi.getHistory().catch(() => []);
+      setActionHistory(actHistoryRes || []);
+      setNotificationMsg(`Action plan for ${currentMonth} locked into historical records.`);
+      setTimeout(() => setNotificationMsg(null), 4000);
+    } catch (err: any) {
+      alert(`Confirm plan failed: ${err.message}`);
+    } finally {
+      setConfirmLoading(false);
+    }
+  }
+
+  async function handleRunWhatIf() {
+    setIsSimulating(true);
+    try {
+      const sim = await actionApi.simulate({
+        month: currentMonth,
+        surplus_delta: simSurplusDelta,
+        expense_delta: simExpenseDelta,
+        simulated_emergency_months: simEmergencyMonths,
+        overrides: actionPlan?.user_overrides,
+      });
+      setSimulatedPlan(sim);
+    } catch (err: any) {
+      alert(`What-if simulation error: ${err.message}`);
+    } finally {
+      setIsSimulating(false);
+    }
+  }
 
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -259,12 +273,7 @@ export default function PlanPage() {
       const updated = await allocationApi.saveProfile(payload);
       setProfile(updated);
       setIsEditingProfile(false);
-
-      // Regenerate plan for current month with updated profile
-      const newPlan = await allocationApi.generatePlan(currentMonth);
-      setCurrentPlan(newPlan);
-      const historyRes = await allocationApi.listPlanHistory();
-      setHistory(historyRes || []);
+      await loadOrGenerateActionPlan(currentMonth);
     } catch (err: any) {
       alert(`Save profile failed: ${err.message}`);
     }
@@ -288,931 +297,563 @@ export default function PlanPage() {
       setGoalCurrentAmount('0');
       setIsGoalModalOpen(false);
 
-      const [goalsRes, newPlan, historyRes] = await Promise.all([
-        allocationApi.listGoals(),
-        allocationApi.generatePlan(currentMonth),
-        allocationApi.listPlanHistory(),
-      ]);
-
+      const goalsRes = await allocationApi.listGoals();
       setGoals(goalsRes || []);
-      setCurrentPlan(newPlan);
-      setHistory(historyRes || []);
+      await loadOrGenerateActionPlan(currentMonth);
     } catch (err: any) {
       alert(`Create goal failed: ${err.message}`);
     }
   }
 
-  async function handleDeleteGoal(id: string, title: string) {
-    if (!window.confirm(`Delete goal "${title}"?`)) return;
-    try {
-      await allocationApi.deleteGoal(id);
-      const [goalsRes, newPlan, historyRes] = await Promise.all([
-        allocationApi.listGoals(),
-        allocationApi.generatePlan(currentMonth),
-        allocationApi.listPlanHistory(),
-      ]);
-      setGoals(goalsRes || []);
-      setCurrentPlan(newPlan);
-      setHistory(historyRes || []);
-    } catch (err: any) {
-      alert(`Delete goal failed: ${err.message}`);
-    }
-  }
-
-  const isDeficit = currentPlan?.is_deficit ?? false;
-  const surplus = currentPlan?.monthly_surplus ?? 0;
+  const activePlanToDisplay = simulatedPlan || actionPlan;
+  const isDeficit = activePlanToDisplay?.is_deficit ?? false;
+  const surplus = activePlanToDisplay?.monthly_surplus ?? 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+    <div style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '32px' }}>
       {/* Top Header */}
-      <div style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: '16px',
-        padding: '24px',
-        background: 'var(--canvas-surface)',
-        border: '1px solid var(--border-hairline)'
-      }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <div className="meta-tag" style={{ marginBottom: '6px' }}>
-            Phase 3 • Savings Allocation & Financial Freedom Foundation
-          </div>
-          <h1 style={{ fontSize: '28px', margin: 0, fontWeight: 600, letterSpacing: '-0.02em' }}>
-            This Month's Money Plan
+          <div className="meta-tag" style={{ color: 'var(--signal-forest)' }}>PHASE 6 • FINANCIAL ACTION ENGINE</div>
+          <h1 style={{ fontSize: '26px', fontWeight: 600, margin: '4px 0 0 0', letterSpacing: '-0.02em' }}>
+            Financial Action Command Center
           </h1>
-          <p style={{ color: 'var(--ink-secondary)', margin: '4px 0 0 0', fontSize: '13.5px' }}>
-            Deterministic surplus assignment: <em>"₹X बचा है — अब इसका क्या करना चाहिए?"</em>
+          <p style={{ color: 'var(--ink-secondary)', margin: '6px 0 0 0', fontSize: '13.5px' }}>
+            Deterministic, priority-driven money execution plan answering: <em>&quot;I have ₹X left this month. What should I do with it?&quot;</em>
           </p>
         </div>
 
-        {/* Month Selector Bar */}
+        {/* Month Selector Bar & Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            background: 'var(--canvas-inset)',
-            border: '1px solid var(--border-hairline)',
-            padding: '4px'
-          }}>
-            <button
-              onClick={() => changeMonth(-1)}
-              className="action-link"
-              title="Previous Month"
-              style={{ padding: '6px 8px', display: 'flex', alignItems: 'center' }}
-            >
+          <div style={{ display: 'flex', alignItems: 'center', background: 'var(--canvas-inset)', border: '1px solid var(--border-hairline)', padding: '4px' }}>
+            <button onClick={() => changeMonth(-1)} className="action-link" title="Previous Month" style={{ padding: '6px 8px', display: 'flex', alignItems: 'center' }}>
               <ChevronLeft size={16} />
             </button>
-
             <div style={{ padding: '0 12px', textAlign: 'center' }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '14px' }}>
                 {monthDisplayLabel}
               </span>
             </div>
-
-            <button
-              onClick={() => changeMonth(1)}
-              className="action-link"
-              title="Next Month"
-              style={{ padding: '6px 8px', display: 'flex', alignItems: 'center' }}
-            >
+            <button onClick={() => changeMonth(1)} className="action-link" title="Next Month" style={{ padding: '6px 8px', display: 'flex', alignItems: 'center' }}>
               <ChevronRight size={16} />
             </button>
           </div>
 
           <button
-            onClick={() => loadOrGeneratePlan(currentMonth)}
+            onClick={() => loadOrGenerateActionPlan(currentMonth)}
             disabled={planLoading}
             className="instrument-btn"
             style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px' }}
-            title="Recalculate plan based on latest ledger events and profile"
+            title="Recalculate plan from deterministic services"
           >
             <RefreshCw size={14} className={planLoading ? 'spin' : ''} />
             <span>Recalculate</span>
           </button>
+
+          <button
+            onClick={handleConfirmPlan}
+            disabled={confirmLoading || Boolean(actionPlan?.confirmed_at)}
+            className="instrument-btn"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '9px 14px',
+              background: actionPlan?.confirmed_at ? 'rgba(34, 197, 94, 0.15)' : 'var(--signal-forest)',
+              color: '#fff',
+              border: 'none',
+              cursor: actionPlan?.confirmed_at ? 'default' : 'pointer'
+            }}
+            title={actionPlan?.confirmed_at ? 'Plan locked in historical archive' : 'Confirm and lock this monthly plan'}
+          >
+            <Lock size={14} />
+            <span>{actionPlan?.confirmed_at ? 'Plan Locked' : 'Confirm Plan'}</span>
+          </button>
         </div>
       </div>
 
+      {notificationMsg && (
+        <div style={{ padding: '12px 18px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid var(--signal-forest)', color: 'var(--signal-forest)', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
+          <CheckCircle2 size={16} />
+          <span>{notificationMsg}</span>
+        </div>
+      )}
+
       {error && (
-        <div style={{
-          padding: '14px 18px',
-          background: 'rgba(239, 68, 68, 0.08)',
-          border: '1px solid var(--signal-alert)',
-          color: 'var(--signal-alert)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          fontSize: '13px'
-        }}>
+        <div style={{ padding: '14px 18px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid var(--signal-alert)', color: 'var(--signal-alert)', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
           <AlertCircle size={16} />
           <span>{error}</span>
         </div>
       )}
 
-      {/* SECTION 1: THIS MONTH'S MONEY PLAN */}
+      {/* # THIS MONTH HERO BANNER */}
       <div style={{
         background: 'var(--canvas-surface)',
         border: '1px solid var(--border-hairline)',
-        padding: '24px',
+        padding: '24px 28px',
         display: 'flex',
-        flexDirection: 'column',
-        gap: '20px'
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '20px',
+        position: 'relative',
+        overflow: 'hidden'
       }}>
-        {/* Month Financial Bar */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '16px',
-          padding: '16px 20px',
-          background: 'var(--canvas-inset)',
-          border: '1px solid var(--border-hairline)'
-        }}>
+        <div>
+          <div className="meta-tag" style={{ color: 'var(--ink-secondary)' }}>
+            # THIS MONTH • {monthDisplayLabel.toUpperCase()}
+          </div>
+          <div style={{ fontSize: '36px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: isDeficit ? 'var(--signal-alert)' : 'var(--signal-forest)', marginTop: '4px' }}>
+            {isDeficit ? '-' : '+'}₹{Math.abs(surplus).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
+            {isDeficit
+              ? 'MONTHLY DEFICIT DETECTED • CAPITAL ALLOCATION PAUSED'
+              : 'AVAILABLE TO ALLOCATE ACROSS PRIORITIES'}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
           <div>
-            <div className="meta-tag">MONTHLY INFLOW</div>
-            <div style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)', marginTop: '4px' }}>
-              ₹{(currentPlan?.monthly_income ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            <div className="meta-tag">INCOME</div>
+            <div style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)', marginTop: '2px' }}>
+              ₹{(activePlanToDisplay?.monthly_income ?? 0).toLocaleString('en-IN')}
             </div>
           </div>
           <div>
-            <div className="meta-tag">MONTHLY OUTFLOW</div>
-            <div style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)', marginTop: '4px' }}>
-              ₹{(currentPlan?.monthly_expenses ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            <div className="meta-tag">EXPENSES</div>
+            <div style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)', marginTop: '2px' }}>
+              ₹{(activePlanToDisplay?.monthly_expenses ?? 0).toLocaleString('en-IN')}
             </div>
           </div>
-          <div>
-            <div className="meta-tag">{isDeficit ? 'MONTHLY DEFICIT' : 'AVAILABLE SURPLUS'}</div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: 600,
-              fontFamily: 'var(--font-mono)',
-              color: isDeficit ? 'var(--signal-alert)' : 'var(--signal-forest)',
-              marginTop: '4px'
-            }}>
-              {isDeficit ? '-' : '+'}₹{Math.abs(surplus).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-          </div>
-          <div>
-            <div className="meta-tag">STATUS & RECONCILIATION</div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ink-primary)', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {isDeficit ? (
-                <span style={{ color: 'var(--signal-alert)' }}>Allocation Halted (Deficit)</span>
-              ) : (
-                <>
-                  <CheckCircle2 size={16} style={{ color: 'var(--signal-forest)' }} />
-                  <span>100% Reconciled (₹{currentPlan?.allocations.total_allocated.toLocaleString('en-IN')})</span>
-                </>
-              )}
+          <div style={{ paddingLeft: '16px', borderLeft: '1px solid var(--border-hairline)' }}>
+            <div className="meta-tag">INVARIANT INTEGRITY</div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--signal-forest)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+              <CheckCircle2 size={16} />
+              <span>100% Exact (₹{activePlanToDisplay?.allocations.total_allocated.toLocaleString('en-IN')})</span>
             </div>
           </div>
         </div>
 
-        {/* If Deficit Alert */}
-        {isDeficit ? (
-          <div style={{
-            padding: '20px',
-            background: 'rgba(239, 68, 68, 0.05)',
-            border: '1px solid var(--signal-alert)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--signal-alert)', fontWeight: 600 }}>
-              <ShieldAlert size={18} />
-              <span>DEFICIT WARNING: CAPITAL ALLOCATION PAUSED</span>
-            </div>
-            <p style={{ margin: 0, fontSize: '13px', color: 'var(--ink-primary)', lineHeight: 1.5 }}>
-              {currentPlan?.explanation.primary_summary}
+        {actionPlan?.confirmed_at && (
+          <div style={{ position: 'absolute', top: '12px', right: '16px', fontSize: '11px', color: 'var(--ink-tertiary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Lock size={12} />
+            <span>Locked on {new Date(actionPlan.confirmed_at).toLocaleDateString()}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ## YOUR ACTION PLAN */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '20px', fontWeight: 600, margin: 0 }}>## YOUR ACTION PLAN</h2>
+            <p style={{ color: 'var(--ink-secondary)', fontSize: '13px', margin: '4px 0 0 0' }}>
+              Priority-driven deterministic money allocations for {monthDisplayLabel}.
             </p>
-            {currentPlan?.explanation.deficit_pressure_analysis && (
-              <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '4px' }}>
-                <div>• {currentPlan.explanation.deficit_pressure_analysis.spending_pressure}</div>
-                <div>• Essential expenses absorb {currentPlan.explanation.deficit_pressure_analysis.essential_expense_ratio}% of current revenue.</div>
-                <div>• Debt/EMI obligations absorb {currentPlan.explanation.deficit_pressure_analysis.debt_obligation_ratio}% of current revenue.</div>
-                <div style={{ fontWeight: 600, color: 'var(--ink-primary)', marginTop: '4px' }}>
-                  Action: {currentPlan.explanation.deficit_pressure_analysis.recommendation}
+          </div>
+          {activePlanToDisplay?.user_override_applied && (
+            <span style={{ fontSize: '12px', padding: '4px 10px', background: 'rgba(234, 179, 8, 0.15)', color: '#ca8a04', fontWeight: 600, borderRadius: '4px' }}>
+              User Override Active
+            </span>
+          )}
+        </div>
+
+        {/* Action Item Cards */}
+        {isDeficit ? (
+          <div style={{ padding: '24px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid var(--signal-alert)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--signal-alert)', fontWeight: 600 }}>
+              <ShieldAlert size={20} />
+              <span style={{ fontSize: '16px' }}>PRIORITY P0 • CASHFLOW DEFICIT RECOVERY</span>
+            </div>
+            <p style={{ margin: 0, fontSize: '14px', color: 'var(--ink-primary)' }}>
+              {activePlanToDisplay?.primary_summary}
+            </p>
+            {activePlanToDisplay?.deficit_analysis && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--ink-secondary)', marginTop: '8px' }}>
+                <div>• Monthly Deficit: ₹{activePlanToDisplay.deficit_analysis.monthly_deficit.toLocaleString('en-IN')}</div>
+                <div>• Essential Expense Absorption: {activePlanToDisplay.deficit_analysis.essential_expense_ratio}% of income</div>
+                <div>• Debt Pressure Ratio: {activePlanToDisplay.deficit_analysis.debt_pressure_ratio}% of income</div>
+                {activePlanToDisplay.deficit_analysis.largest_spending_category && (
+                  <div>• Largest Outflow Pressure: {activePlanToDisplay.deficit_analysis.largest_spending_category.category} (₹{activePlanToDisplay.deficit_analysis.largest_spending_category.amount.toLocaleString('en-IN')})</div>
+                )}
+                <div style={{ marginTop: '6px', fontWeight: 600, color: 'var(--ink-primary)' }}>
+                  Recommended Immediate Steps:
                 </div>
+                {activePlanToDisplay.deficit_analysis.recommended_actions.map((act, i) => (
+                  <div key={i}> {i + 1}. {act}</div>
+                ))}
               </div>
             )}
           </div>
         ) : (
-          /* If Positive Surplus: 4 Deterministic Priority Allocation Cards */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-              {/* Priority 1: Emergency Fund */}
-              <div style={{
-                background: 'var(--canvas-inset)',
-                border: '1px solid var(--border-hairline)',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="meta-tag" style={{ color: 'var(--ink-tertiary)' }}>PRIORITY 1 • SAFETY</span>
-                  <ShieldCheck size={16} style={{ color: currentPlan?.emergency_fund.is_complete ? 'var(--signal-forest)' : 'var(--ink-primary)' }} />
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>Emergency Fund</div>
-                <div style={{ fontSize: '26px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)' }}>
-                  ₹{(currentPlan?.allocations.emergency_fund ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-                  Target: ₹{currentPlan?.emergency_fund.emergency_fund_target.toLocaleString('en-IN')} ({currentPlan?.emergency_fund.target_months} mos)
-                  <br />
-                  Gap: ₹{currentPlan?.emergency_fund.emergency_fund_gap.toLocaleString('en-IN')} • Coverage: {currentPlan?.emergency_fund.coverage_months} mos
-                </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+            {/* 1. Emergency Fund */}
+            <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', padding: '22px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="meta-tag" style={{ color: 'var(--signal-forest)' }}>PRIORITY 1 • SAFETY</span>
+                <ShieldCheck size={18} style={{ color: 'var(--signal-forest)' }} />
               </div>
-
-              {/* Priority 2: Goals */}
-              <div style={{
-                background: 'var(--canvas-inset)',
-                border: '1px solid var(--border-hairline)',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="meta-tag" style={{ color: 'var(--ink-tertiary)' }}>PRIORITY 2 • HORIZONS</span>
-                  <Target size={16} style={{ color: 'var(--ink-primary)' }} />
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>Near-Term Goals</div>
-                <div style={{ fontSize: '26px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)' }}>
-                  ₹{(currentPlan?.allocations.goals ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-                  {goals.filter((g) => g.status === 'active').length} active goals configured
-                  <br />
-                  Channeled towards designated milestone targets
-                </div>
+              <div style={{ fontSize: '15px', fontWeight: 600 }}>1. Emergency Fund</div>
+              <div style={{ fontSize: '28px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)' }}>
+                ₹{(activePlanToDisplay?.allocations.emergency_fund ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </div>
+              <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--ink-secondary)', lineHeight: 1.4 }}>
+                {activePlanToDisplay?.actions.find((a) => a.category === 'emergency_fund')?.why_rationale}
+              </p>
+            </div>
 
-              {/* Priority 3: Long-Term Wealth */}
-              <div style={{
-                background: 'var(--canvas-inset)',
-                border: '1px solid var(--border-hairline)',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="meta-tag" style={{ color: 'var(--ink-tertiary)' }}>PRIORITY 3 • FREEDOM</span>
-                  <TrendingUp size={16} style={{ color: 'var(--signal-forest)' }} />
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>Long-Term Wealth</div>
-                <div style={{ fontSize: '26px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)' }}>
-                  ₹{(currentPlan?.allocations.long_term_wealth ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-                  Foundation bucket for financial independence
-                  <br />
-                  *(No securities or stock picking advised)*
-                </div>
+            {/* 2. Goals */}
+            <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', padding: '22px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="meta-tag" style={{ color: 'var(--ink-primary)' }}>PRIORITY 2 • GOALS</span>
+                <Target size={18} style={{ color: 'var(--ink-primary)' }} />
               </div>
+              <div style={{ fontSize: '15px', fontWeight: 600 }}>2. Near-Term Goals</div>
+              <div style={{ fontSize: '28px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)' }}>
+                ₹{(activePlanToDisplay?.allocations.goals ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+              <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--ink-secondary)', lineHeight: 1.4 }}>
+                {activePlanToDisplay?.actions.find((a) => a.category === 'goals')?.why_rationale}
+              </p>
+              {activePlanToDisplay?.ranked_goals && activePlanToDisplay.ranked_goals.length > 0 && (
+                <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11.5px', color: 'var(--ink-secondary)' }}>
+                  {activePlanToDisplay.ranked_goals.map((g) => (
+                    <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>#{g.priority_rank} {g.title}{g.is_paused ? ' (Paused)' : ''}:</span>
+                      <span style={{ fontWeight: 600, color: 'var(--ink-primary)' }}>₹{g.allocated_amount.toLocaleString('en-IN')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-              {/* Priority 4: Flexible Buffer */}
-              <div style={{
-                background: 'var(--canvas-inset)',
-                border: '1px solid var(--border-hairline)',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="meta-tag" style={{ color: 'var(--ink-tertiary)' }}>PRIORITY 4 • LIQUIDITY</span>
-                  <Wallet size={16} style={{ color: 'var(--ink-secondary)' }} />
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>Flexible Buffer</div>
-                <div style={{ fontSize: '26px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)' }}>
-                  ₹{(currentPlan?.allocations.flexible_buffer ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-                  Uncommitted cashflow margin
-                  <br />
-                  Protects against day-to-day spending variance
-                </div>
+            {/* 3. Long-Term Wealth */}
+            <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', padding: '22px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="meta-tag" style={{ color: 'var(--signal-forest)' }}>PRIORITY 3 • FREEDOM</span>
+                <TrendingUp size={18} style={{ color: 'var(--signal-forest)' }} />
+              </div>
+              <div style={{ fontSize: '15px', fontWeight: 600 }}>3. Long-Term Wealth</div>
+              <div style={{ fontSize: '28px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)' }}>
+                ₹{(activePlanToDisplay?.allocations.long_term_wealth ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+              <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--ink-secondary)', lineHeight: 1.4 }}>
+                {activePlanToDisplay?.actions.find((a) => a.category === 'long_term_wealth')?.why_rationale}
+              </p>
+              <div style={{ fontSize: '11px', color: 'var(--ink-tertiary)' }}>
+                *(Abstract wealth allocation; no individual securities)*
               </div>
             </div>
 
-            {/* Explanation & Rationale Card */}
-            <div style={{
-              background: 'var(--canvas-surface)',
-              border: '1px solid var(--border-hairline)',
-              padding: '18px 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              fontSize: '12.5px',
-              lineHeight: 1.5
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: 'var(--ink-primary)' }}>
-                <Sparkles size={14} />
-                <span>Deterministic Allocation Rationale</span>
+            {/* 4. Flexible Buffer */}
+            <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', padding: '22px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="meta-tag" style={{ color: 'var(--ink-secondary)' }}>PRIORITY 4 • LIQUIDITY</span>
+                <Wallet size={18} style={{ color: 'var(--ink-secondary)' }} />
               </div>
-              <div style={{ color: 'var(--ink-secondary)' }}>
-                • <strong>Emergency Fund: </strong>{currentPlan?.explanation.emergency_fund_rationale}
+              <div style={{ fontSize: '15px', fontWeight: 600 }}>4. Flexible Buffer</div>
+              <div style={{ fontSize: '28px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)' }}>
+                ₹{(activePlanToDisplay?.allocations.flexible_buffer ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </div>
-              <div style={{ color: 'var(--ink-secondary)' }}>
-                • <strong>Milestone Goals: </strong>{currentPlan?.explanation.goals_rationale}
-              </div>
-              <div style={{ color: 'var(--ink-secondary)' }}>
-                • <strong>Long-Term Wealth: </strong>{currentPlan?.explanation.long_term_wealth_rationale}
-              </div>
-              <div style={{ color: 'var(--ink-secondary)' }}>
-                • <strong>Buffer: </strong>{currentPlan?.explanation.buffer_rationale}
-              </div>
+              <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--ink-secondary)', lineHeight: 1.4 }}>
+                {activePlanToDisplay?.actions.find((a) => a.category === 'flexible_buffer')?.why_rationale}
+              </p>
             </div>
           </div>
         )}
       </div>
 
-      {/* SECTION 2: FINANCIAL FREEDOM CALCULATOR & WHAT-IF SIMULATOR */}
-      <div style={{
-        background: 'var(--canvas-surface)',
-        border: '1px solid var(--border-hairline)',
-        padding: '24px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '24px'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div className="meta-tag" style={{ color: 'var(--signal-forest)' }}>
-              PHASE 4 • FINANCIAL FREEDOM CALCULATOR
+      {/* ## WHY (Deterministic Rationale) */}
+      <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Sparkles size={18} style={{ color: 'var(--signal-forest)' }} />
+          <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>## WHY</h2>
+        </div>
+        <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--ink-primary)', fontWeight: 500 }}>
+          {activePlanToDisplay?.primary_summary}
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', fontSize: '12.5px', marginTop: '4px' }}>
+          {activePlanToDisplay?.actions.map((act, idx) => (
+            <div key={idx} style={{ padding: '12px', background: 'var(--canvas-inset)', border: '1px solid var(--border-hairline)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span className="meta-tag">{act.priority_label}</span>
+              <div style={{ fontWeight: 600 }}>{act.title} — ₹{act.allocated_amount.toLocaleString('en-IN')}</div>
+              <div style={{ color: 'var(--ink-secondary)' }}>{act.why_rationale}</div>
             </div>
-            <h2 style={{ fontSize: '20px', margin: '4px 0 0 0', fontWeight: 600 }}>
-              Freedom Position & Target Corpus Projection
-            </h2>
-            <p style={{ color: 'var(--ink-secondary)', margin: '4px 0 0 0', fontSize: '13px' }}>
-              Deterministic actuarial estimate answering: <em>"How far am I from financial freedom?"</em>
+          ))}
+        </div>
+      </div>
+
+      {/* ## FINANCIAL FREEDOM */}
+      <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div>
+          <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>## FINANCIAL FREEDOM</h2>
+          <p style={{ color: 'var(--ink-secondary)', fontSize: '13px', margin: '4px 0 0 0' }}>
+            Alignment between this month&apos;s allocation capacity and your actuarial independence target.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', padding: '16px', background: 'var(--canvas-inset)', border: '1px solid var(--border-hairline)' }}>
+          <div>
+            <div className="meta-tag">CURRENT MONTH CONTRIBUTION</div>
+            <div style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)', marginTop: '4px' }}>
+              ₹{(activePlanToDisplay?.financial_freedom.current_monthly_contribution ?? 0).toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div>
+            <div className="meta-tag">REQUIRED CONTRIBUTION</div>
+            <div style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)', marginTop: '4px' }}>
+              ₹{(activePlanToDisplay?.financial_freedom.required_monthly_contribution ?? 0).toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div>
+            <div className="meta-tag">FREEDOM CONTRIBUTION GAP</div>
+            <div style={{
+              fontSize: '20px',
+              fontWeight: 600,
+              fontFamily: 'var(--font-mono)',
+              color: (activePlanToDisplay?.financial_freedom.contribution_gap ?? 0) > 0 ? 'var(--signal-alert)' : 'var(--signal-forest)',
+              marginTop: '4px'
+            }}>
+              ₹{(activePlanToDisplay?.financial_freedom.contribution_gap ?? 0).toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div>
+            <div className="meta-tag">TARGET CORPUS</div>
+            <div style={{ fontSize: '20px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)', marginTop: '4px' }}>
+              ₹{((activePlanToDisplay?.financial_freedom.target_corpus ?? 0) / 10000000).toFixed(2)} Cr
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ## CHANGE THE PLAN (User Controls & Overrides) */}
+      <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>## CHANGE THE PLAN</h2>
+            <p style={{ color: 'var(--ink-secondary)', fontSize: '13px', margin: '4px 0 0 0' }}>
+              Adjust priorities explicitly without altering underlying financial profile records.
             </p>
           </div>
-
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <button
-              onClick={() => setIsEditingProfile(!isEditingProfile)}
-              className="instrument-btn"
-              style={{ fontSize: '12px', padding: '7px 14px' }}
-            >
-              <Edit2 size={13} />
-              <span>{isEditingProfile ? 'Close Calibration' : 'Calibrate Profile'}</span>
-            </button>
-          </div>
+          <button
+            onClick={() => setIsOverrideOpen(!isOverrideOpen)}
+            className="instrument-btn"
+            style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Sliders size={14} />
+            <span>{isOverrideOpen ? 'Hide Controls' : 'Adjust Priorities'}</span>
+          </button>
         </div>
 
-        {/* Top KPI Cards */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-          gap: '16px'
-        }}>
-          <div style={{ background: 'var(--canvas-inset)', padding: '16px', border: '1px solid var(--border-hairline)' }}>
-            <div className="meta-tag">INVESTABLE WEALTH (W₀)</div>
-            <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-              ₹{(freedomData?.initial_investable_wealth ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-              Investments: ₹{(freedomData?.existing_investments ?? 0).toLocaleString('en-IN')}
-              <br />
-              Emergency Reserve Isolated: ₹{(freedomData?.emergency_fund_reserve ?? 0).toLocaleString('en-IN')}
-            </div>
-          </div>
+        {isOverrideOpen && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px', background: 'var(--canvas-inset)', border: '1px solid var(--border-hairline)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+              {/* Emergency Reserve Override */}
+              <div>
+                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
+                  Custom Emergency Reserve Allocation (INR)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Auto-calculated"
+                  value={overrideEmergency}
+                  onChange={(e) => setOverrideEmergency(e.target.value)}
+                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none', fontFamily: 'var(--font-mono)' }}
+                />
+              </div>
 
-          <div style={{ background: 'var(--canvas-inset)', padding: '16px', border: '1px solid var(--border-hairline)' }}>
-            <div className="meta-tag">INDICATIVE TARGET CORPUS</div>
-            <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)', marginTop: '4px' }}>
-              ₹{(freedomData?.active_scenario.indicative_target_corpus ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-              Future need: ₹{(freedomData?.active_scenario.future_monthly_lifestyle_need ?? 0).toLocaleString('en-IN')}/mo at age {freedomData?.target_age ?? 55}
-            </div>
-          </div>
+              {/* Goal Priority Selection */}
+              <div>
+                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
+                  Prioritize Specific Goal
+                </label>
+                <select
+                  value={overridePrioritizedGoal}
+                  onChange={(e) => setOverridePrioritizedGoal(e.target.value)}
+                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
+                >
+                  <option value="">-- Deterministic Deadline Order --</option>
+                  {goals.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.title} (Target: ₹{g.target_amount.toLocaleString('en-IN')})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div style={{ background: 'var(--canvas-inset)', padding: '16px', border: '1px solid var(--border-hairline)' }}>
-            <div className="meta-tag">PROJECTED WEALTH AT TARGET AGE</div>
-            <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)', marginTop: '4px' }}>
-              ₹{(freedomData?.active_scenario.projected_wealth_at_target_age ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              {/* Cash Buffer Override */}
+              <div>
+                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
+                  Custom Cash Buffer Target (INR)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Auto-reconciled"
+                  value={overrideBuffer}
+                  onChange={(e) => setOverrideBuffer(e.target.value)}
+                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none', fontFamily: 'var(--font-mono)' }}
+                />
+              </div>
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-              At {freedomData?.active_scenario.expected_return_pct ?? 10}% APR compounding over {freedomData?.years_to_freedom ?? 0} yrs
-            </div>
-          </div>
 
-          <div style={{ background: 'var(--canvas-inset)', padding: '16px', border: '1px solid var(--border-hairline)' }}>
-            <div className="meta-tag">STATUS & FUNDING GAP</div>
-            <div style={{
-              display: 'inline-block',
-              padding: '2px 8px',
-              fontSize: '11px',
-              fontWeight: 600,
-              marginTop: '4px',
-              background: freedomData?.active_scenario.status === 'Ahead of Target'
-                ? 'rgba(16, 185, 129, 0.12)'
-                : freedomData?.active_scenario.status === 'On Track'
-                  ? 'rgba(59, 130, 246, 0.12)'
-                  : 'rgba(239, 68, 68, 0.12)',
-              color: freedomData?.active_scenario.status === 'Ahead of Target'
-                ? 'var(--signal-forest)'
-                : freedomData?.active_scenario.status === 'On Track'
-                  ? '#3b82f6'
-                  : 'var(--signal-alert)',
-              border: '1px solid currentColor'
-            }}>
-              {freedomData?.active_scenario.status || 'Calculating'}
-            </div>
-            <div style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-mono)', marginTop: '6px' }}>
-              {freedomData?.active_scenario.funding_gap && freedomData.active_scenario.funding_gap > 0
-                ? `Gap: ₹${freedomData.active_scenario.funding_gap.toLocaleString('en-IN')}`
-                : `Surplus: ₹${(freedomData?.active_scenario.funding_surplus ?? 0).toLocaleString('en-IN')}`}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-              Required monthly: ₹{(freedomData?.active_scenario.required_monthly_contribution ?? 0).toLocaleString('en-IN')}/mo
-            </div>
-          </div>
-        </div>
-
-        {/* Narrative Analysis */}
-        {freedomData?.active_scenario.explanation && (
-          <div style={{
-            padding: '16px 20px',
-            background: 'var(--canvas-inset)',
-            borderLeft: '3px solid var(--signal-forest)',
-            fontSize: '13px',
-            lineHeight: 1.6
-          }}>
-            <strong>Diagnostic: </strong>
-            {freedomData.active_scenario.explanation}
-          </div>
-        )}
-
-        {/* Scenario Comparison Table */}
-        {freedomData && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div className="meta-tag">THREE EXPLICIT PLANNING SCENARIOS</div>
-            <div style={{ overflowX: 'auto', border: '1px solid var(--border-hairline)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ background: 'var(--canvas-inset)', borderBottom: '1px solid var(--border-hairline)', fontFamily: 'var(--font-mono)', color: 'var(--ink-tertiary)' }}>
-                    <th style={{ padding: '10px 14px' }}>SCENARIO</th>
-                    <th style={{ padding: '10px 14px' }}>RETURN / INFLATION / SWR</th>
-                    <th style={{ padding: '10px 14px' }}>FUTURE MO. NEED</th>
-                    <th style={{ padding: '10px 14px' }}>TARGET CORPUS</th>
-                    <th style={{ padding: '10px 14px' }}>PROJECTED WEALTH</th>
-                    <th style={{ padding: '10px 14px' }}>REQ. MONTHLY</th>
-                    <th style={{ padding: '10px 14px' }}>STATUS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(['conservative', 'base', 'optimistic'] as const).map((scenKey) => {
-                    const scen = freedomData.scenarios[scenKey];
-                    const isSelected = freedomData.active_scenario_name === scenKey;
-                    return (
-                      <tr
-                        key={scenKey}
-                        style={{
-                          borderBottom: '1px solid var(--border-hairline)',
-                          background: isSelected ? 'rgba(255, 255, 255, 0.03)' : 'transparent',
-                          fontWeight: isSelected ? 600 : 400
-                        }}
-                      >
-                        <td style={{ padding: '10px 14px', textTransform: 'capitalize' }}>
-                          {scen.scenario_name} {isSelected && '• (Selected)'}
-                        </td>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
-                          {scen.expected_return_pct}% / {scen.inflation_rate_pct}% / {scen.withdrawal_rate_pct}%
-                        </td>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
-                          ₹{scen.future_monthly_lifestyle_need.toLocaleString('en-IN')}
-                        </td>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
-                          ₹{scen.indicative_target_corpus.toLocaleString('en-IN')}
-                        </td>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--signal-forest)' }}>
-                          ₹{scen.projected_wealth_at_target_age.toLocaleString('en-IN')}
-                        </td>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
-                          ₹{scen.required_monthly_contribution.toLocaleString('en-IN')}
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{
-                            padding: '2px 6px',
-                            fontSize: '10.5px',
-                            fontWeight: 600,
-                            color: scen.status === 'Ahead of Target'
-                              ? 'var(--signal-forest)'
-                              : scen.status === 'On Track'
-                                ? '#3b82f6'
-                                : 'var(--signal-alert)'
-                          }}>
-                            {scen.status}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Interactive What-If Simulator */}
-        <div style={{
-          background: 'var(--canvas-inset)',
-          border: '1px solid var(--border-hairline)',
-          padding: '20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '14px' }}>
-              <Sliders size={16} />
-              <span>Interactive What-If Simulation Sandbox</span>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              {assumptionSavedMsg && (
-                <span style={{ fontSize: '12px', color: 'var(--signal-forest)' }}>
-                  {assumptionSavedMsg}
-                </span>
-              )}
-              <button
-                onClick={handleSaveAssumptions}
-                disabled={isSavingAssumptions}
-                className="instrument-btn"
-                style={{ fontSize: '12px', padding: '6px 14px' }}
-                title="Persist current sandbox rates as your default planning assumptions in your financial profile"
-              >
-                {isSavingAssumptions ? 'Saving...' : 'Save As My Default Assumptions'}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+              <button onClick={handleApplyOverrides} className="instrument-btn" style={{ padding: '8px 16px', background: 'var(--signal-forest)', color: '#fff', border: 'none' }}>
+                Apply Custom Priorities
+              </button>
+              <button onClick={handleResetOverrides} className="instrument-btn" style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <RotateCcw size={14} />
+                <span>Reset to Recommended Baseline</span>
               </button>
             </div>
           </div>
+        )}
 
-          <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--ink-secondary)' }}>
-            Adjust the levers below to preview your future wealth projection. Calculations update dynamically without overwriting your database records until you click "Save".
-          </p>
+        {/* WHAT-IF SIMULATIONS */}
+        <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+            <Zap size={16} style={{ color: 'var(--signal-forest)' }} />
+            <span>Interactive What-If Simulator</span>
+            <span style={{ fontSize: '11.5px', color: 'var(--ink-secondary)', fontWeight: 400 }}>
+              (Pure transient simulation • never alters live data)
+            </span>
+          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
             <div>
               <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
-                Simulated Target Age ({simTargetAge} yrs)
-              </label>
-              <input
-                type="range"
-                min={Math.max((freedomData?.current_age ?? 30) + 1, 20)}
-                max="85"
-                value={simTargetAge}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  setSimTargetAge(val);
-                  runSimulation({ targetAge: val });
-                }}
-                style={{ width: '100%' }}
-              />
-            </div>
-
-            <div>
-              <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
-                Additional Monthly Savings (+₹{simExtraSavings.toLocaleString('en-IN')})
+                Extra Monthly Savings: +₹{simSurplusDelta.toLocaleString('en-IN')}
               </label>
               <input
                 type="range"
                 min="0"
-                max="100000"
-                step="2500"
-                value={simExtraSavings}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  setSimExtraSavings(val);
-                  runSimulation({ extraSavings: val });
-                }}
+                max="50000"
+                step="1000"
+                value={simSurplusDelta}
+                onChange={(e) => setSimSurplusDelta(Number(e.target.value))}
                 style={{ width: '100%' }}
               />
             </div>
-
             <div>
               <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
-                Inflation Rate ({simInflationRate}%)
+                Expense Increase: +₹{simExpenseDelta.toLocaleString('en-IN')}
               </label>
               <input
                 type="range"
-                min="3.0"
-                max="12.0"
-                step="0.5"
-                value={simInflationRate}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setSimInflationRate(val);
-                  runSimulation({ inflationRate: val });
-                }}
+                min="0"
+                max="30000"
+                step="1000"
+                value={simExpenseDelta}
+                onChange={(e) => setSimExpenseDelta(Number(e.target.value))}
                 style={{ width: '100%' }}
               />
             </div>
-
             <div>
               <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
-                Compounding Return ({simReturnRate}%)
+                Emergency Target: {simEmergencyMonths} Months
               </label>
               <input
                 type="range"
-                min="5.0"
-                max="18.0"
-                step="0.5"
-                value={simReturnRate}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setSimReturnRate(val);
-                  runSimulation({ returnRate: val });
-                }}
-                style={{ width: '100%' }}
-              />
-            </div>
-
-            <div>
-              <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>
-                Safe Withdrawal Rate ({simWithdrawalRate}%)
-              </label>
-              <input
-                type="range"
-                min="2.5"
-                max="6.0"
-                step="0.25"
-                value={simWithdrawalRate}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setSimWithdrawalRate(val);
-                  runSimulation({ withdrawalRate: val });
-                }}
+                min="3"
+                max="18"
+                step="1"
+                value={simEmergencyMonths}
+                onChange={(e) => setSimEmergencyMonths(Number(e.target.value))}
                 style={{ width: '100%' }}
               />
             </div>
           </div>
-        </div>
 
-        {/* Mathematical Transparency & Regulatory Disclaimer */}
-        <div style={{
-          padding: '14px 18px',
-          background: 'var(--canvas-surface)',
-          border: '1px solid var(--border-hairline)',
-          fontSize: '11.5px',
-          color: 'var(--ink-secondary)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '6px'
-        }}>
-          <div style={{ fontWeight: 600, color: 'var(--ink-primary)' }}>Mathematical Transparency Formulas:</div>
-          <div>• <strong>Future Monthly Expense: </strong>{freedomData?.formula_transparency.future_expense_formula || 'FV = Current_Monthly_Need * (1 + r_inflation)^years'}</div>
-          <div>• <strong>Indicative Target Corpus: </strong>{freedomData?.formula_transparency.target_corpus_formula || 'Target_Corpus = (FV_Monthly * 12) / r_withdrawal'}</div>
-          <div>• <strong>Projected Wealth: </strong>{freedomData?.formula_transparency.future_wealth_formula || 'Projected_Wealth = Initial_Wealth*(1+i)^n + Monthly_Contribution*(((1+i)^n - 1)/i)'}</div>
-          <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '6px', fontStyle: 'italic' }}>
-            Disclaimer: {freedomData?.assumptions_disclaimer || 'These are planning estimates based on user-calibrated economic assumptions, not market return guarantees. Actual future returns and inflation will vary.'}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button onClick={handleRunWhatIf} disabled={isSimulating} className="instrument-btn" style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <RefreshCw size={14} className={isSimulating ? 'spin' : ''} />
+              <span>Simulate Scenario</span>
+            </button>
+            {simulatedPlan && (
+              <button onClick={() => setSimulatedPlan(null)} className="instrument-btn" style={{ padding: '8px 16px' }}>
+                Clear Simulation
+              </button>
+            )}
           </div>
         </div>
-
-        {/* Profile Calibration Drawer */}
-        {isEditingProfile && (
-          <form onSubmit={handleSaveProfile} style={{
-            padding: '20px',
-            background: 'var(--canvas-inset)',
-            border: '1px solid var(--ink-primary)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            marginTop: '8px'
-          }}>
-            <div className="meta-tag" style={{ color: 'var(--ink-primary)' }}>
-              PROFILE CALIBRATION & PLANNING ASSUMPTIONS
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-              <div>
-                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Current Age</label>
-                <input
-                  type="number"
-                  min="18"
-                  max="120"
-                  value={formAge}
-                  onChange={(e) => setFormAge(e.target.value)}
-                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
-                />
-              </div>
-
-              <div>
-                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Essential Monthly Expenses (INR)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formEssentialExpenses}
-                  onChange={(e) => setFormEssentialExpenses(e.target.value)}
-                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
-                />
-              </div>
-
-              <div>
-                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Existing Liquid Savings (INR)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formLiquidSavings}
-                  onChange={(e) => setFormLiquidSavings(e.target.value)}
-                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
-                />
-              </div>
-
-              <div>
-                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Existing Investments (INR)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formInvestments}
-                  onChange={(e) => setFormInvestments(e.target.value)}
-                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
-                />
-              </div>
-
-              <div>
-                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Emergency Target Months</label>
-                <select
-                  value={formTargetMonths}
-                  onChange={(e) => setFormTargetMonths(e.target.value)}
-                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
-                >
-                  <option value="3">3 Months (Aggressive / Lean)</option>
-                  <option value="6">6 Months (Standard Planning Assumption)</option>
-                  <option value="9">9 Months (Conservative)</option>
-                  <option value="12">12 Months (High Security / Freelancer)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Monthly Debt/EMI (INR)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formDebtObligations}
-                  onChange={(e) => setFormDebtObligations(e.target.value)}
-                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
-                />
-              </div>
-
-              <div>
-                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Desired Monthly Freedom Income</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formDesiredIncome}
-                  onChange={(e) => setFormDesiredIncome(e.target.value)}
-                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
-                />
-              </div>
-
-              <div>
-                <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Target Retirement Age</label>
-                <input
-                  type="number"
-                  min="18"
-                  max="120"
-                  value={formTargetAge}
-                  onChange={(e) => setFormTargetAge(e.target.value)}
-                  style={{ width: '100%', padding: '8px', background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', outline: 'none' }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={formHealthInsurance}
-                  onChange={(e) => setFormHealthInsurance(e.target.checked)}
-                />
-                <span>Active Health Insurance Coverage</span>
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={formLifeInsurance}
-                  onChange={(e) => setFormLifeInsurance(e.target.checked)}
-                />
-                <span>Active Term Life Insurance Coverage</span>
-              </label>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                type="button"
-                onClick={() => setIsEditingProfile(false)}
-                style={{ padding: '8px 16px', background: 'transparent', border: '1px solid var(--border-hairline)', cursor: 'pointer', fontSize: '12px' }}
-              >
-                Cancel
-              </button>
-              <button type="submit" className="instrument-btn" style={{ padding: '8px 18px' }}>
-                Save Profile & Recalculate Plans
-              </button>
-            </div>
-          </form>
-        )}
       </div>
 
-      {/* SECTION 3: MILESTONE GOALS */}
-      <div style={{
-        background: 'var(--canvas-surface)',
-        border: '1px solid var(--border-hairline)',
-        padding: '24px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '16px'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div className="meta-tag">FINANCIAL HORIZONS</div>
-            <h2 style={{ fontSize: '18px', margin: '4px 0 0 0', fontWeight: 600 }}>
-              Near-Term Goals
-            </h2>
-          </div>
-          <button
-            onClick={() => setIsGoalModalOpen(true)}
-            className="instrument-btn"
-            style={{ fontSize: '12px', padding: '6px 12px' }}
-          >
-            <Plus size={13} />
-            <span>Add Goal</span>
-          </button>
+      {/* CONFIRMED ACTION PLAN HISTORY */}
+      <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--border-hairline)', overflow: 'hidden' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-hairline)' }}>
+          <div className="meta-tag">RECORD OF CONFIRMED MONTHLY ACTION PLANS</div>
+          <h2 style={{ fontSize: '16px', margin: '4px 0 0 0', fontWeight: 600 }}>
+            Confirmed Monthly Action History
+          </h2>
         </div>
 
-        {goals.length === 0 ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--ink-secondary)', fontSize: '13px' }}>
-            No near-term goals configured. Add a goal (e.g. Down Payment, Emergency Buffer) to assign priority surplus.
+        {/* Table Header */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '120px 140px 130px 130px 130px 130px',
+          padding: '10px 20px',
+          background: 'var(--canvas-inset)',
+          borderBottom: '1px solid var(--border-hairline)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '10px',
+          fontWeight: 600,
+          color: 'var(--ink-tertiary)'
+        }}>
+          <div>MONTH</div>
+          <div style={{ textAlign: 'right' }}>SURPLUS</div>
+          <div style={{ textAlign: 'right' }}>EMERGENCY</div>
+          <div style={{ textAlign: 'right' }}>GOALS</div>
+          <div style={{ textAlign: 'right' }}>WEALTH</div>
+          <div style={{ textAlign: 'right' }}>BUFFER</div>
+        </div>
+
+        {actionHistory.length === 0 ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: 'var(--ink-secondary)', fontSize: '13px' }}>
+            No confirmed action plans archived yet. Click &quot;Confirm Plan&quot; to permanently store this month&apos;s plan.
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-            {goals.map((g) => {
-              const progressPct = g.target_amount > 0 ? Math.min(Math.round(((g.current_amount || 0) / g.target_amount) * 100), 100) : 0;
-              return (
-                <div
-                  key={g.id}
-                  style={{
-                    padding: '16px',
-                    background: 'var(--canvas-inset)',
-                    border: '1px solid var(--border-hairline)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 600, fontSize: '14px' }}>{g.title}</span>
-                    <button
-                      onClick={() => handleDeleteGoal(g.id, g.title)}
-                      className="action-link"
-                      style={{ color: 'var(--signal-alert)', padding: '2px' }}
-                      title="Delete goal"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
-                    <span>₹{g.current_amount.toLocaleString('en-IN')} / ₹{g.target_amount.toLocaleString('en-IN')}</span>
-                    <span style={{ color: 'var(--signal-forest)' }}>{progressPct}%</span>
-                  </div>
-                  <div style={{ height: '4px', background: 'var(--canvas-surface)', width: '100%', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--signal-forest)' }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          actionHistory.map((h, idx) => (
+            <div
+              key={h.id || idx}
+              onClick={() => {
+                setCurrentMonth(h.month);
+                setActionPlan(h);
+              }}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '120px 140px 130px 130px 130px 130px',
+                padding: '12px 20px',
+                borderBottom: idx < actionHistory.length - 1 ? '1px solid var(--border-hairline)' : 'none',
+                alignItems: 'center',
+                fontSize: '12.5px',
+                fontFamily: 'var(--font-mono)',
+                cursor: 'pointer',
+                background: h.month === currentMonth ? 'rgba(34, 197, 94, 0.05)' : 'transparent'
+              }}
+              title="Click to view this confirmed monthly plan"
+            >
+              <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Lock size={12} style={{ color: 'var(--signal-forest)' }} />
+                <span>{h.month}</span>
+              </div>
+              <div style={{ textAlign: 'right', color: h.is_deficit ? 'var(--signal-alert)' : 'var(--signal-forest)' }}>
+                {h.is_deficit ? '-' : '+'}₹{Math.abs(h.monthly_surplus).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+              <div style={{ textAlign: 'right' }}>₹{h.allocations.emergency_fund.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+              <div style={{ textAlign: 'right' }}>₹{h.allocations.goals.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+              <div style={{ textAlign: 'right' }}>₹{h.allocations.long_term_wealth.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+              <div style={{ textAlign: 'right' }}>₹{h.allocations.flexible_buffer.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+            </div>
+          ))
         )}
       </div>
 
-      {/* Goal Add Modal */}
+      {/* Goal Modal */}
       {isGoalModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.65)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: '20px'
-        }}>
-          <div style={{
-            background: 'var(--canvas-surface)',
-            border: '1px solid var(--ink-primary)',
-            width: '100%',
-            maxWidth: '460px',
-            padding: '28px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px'
-          }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
+          <div style={{ background: 'var(--canvas-surface)', border: '1px solid var(--ink-primary)', width: '100%', maxWidth: '460px', padding: '28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>Create Near-Term Goal</h3>
             <form onSubmit={handleCreateGoal} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
@@ -1222,7 +863,7 @@ export default function PlanPage() {
                   required
                   value={goalTitle}
                   onChange={(e) => setGoalTitle(e.target.value)}
-                  placeholder="e.g. Emergency Top-up, Down Payment"
+                  placeholder="e.g. Vacation, Down Payment"
                   style={{ width: '100%', padding: '8px', background: 'var(--canvas-inset)', border: '1px solid var(--border-hairline)', outline: 'none' }}
                 />
               </div>
@@ -1269,11 +910,7 @@ export default function PlanPage() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsGoalModalOpen(false)}
-                  style={{ padding: '8px 14px', background: 'transparent', border: '1px solid var(--border-hairline)', cursor: 'pointer', fontSize: '12px' }}
-                >
+                <button type="button" onClick={() => setIsGoalModalOpen(false)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid var(--border-hairline)', cursor: 'pointer', fontSize: '12px' }}>
                   Cancel
                 </button>
                 <button type="submit" className="instrument-btn" style={{ padding: '8px 18px' }}>
@@ -1284,70 +921,6 @@ export default function PlanPage() {
           </div>
         </div>
       )}
-
-      {/* SECTION 4: REPRODUCIBLE MONTHLY ALLOCATION HISTORY */}
-      <div style={{
-        background: 'var(--canvas-surface)',
-        border: '1px solid var(--border-hairline)',
-        overflow: 'hidden'
-      }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-hairline)' }}>
-          <div className="meta-tag">RECORD OF TEMPORAL ALLOCATIONS</div>
-          <h2 style={{ fontSize: '16px', margin: '4px 0 0 0', fontWeight: 600 }}>
-            Allocation History
-          </h2>
-        </div>
-
-        {/* Table Header */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '120px 140px 130px 130px 130px 130px',
-          padding: '10px 20px',
-          background: 'var(--canvas-inset)',
-          borderBottom: '1px solid var(--border-hairline)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '10px',
-          fontWeight: 600,
-          color: 'var(--ink-tertiary)'
-        }}>
-          <div>MONTH</div>
-          <div style={{ textAlign: 'right' }}>SURPLUS</div>
-          <div style={{ textAlign: 'right' }}>EMERGENCY</div>
-          <div style={{ textAlign: 'right' }}>GOALS</div>
-          <div style={{ textAlign: 'right' }}>WEALTH</div>
-          <div style={{ textAlign: 'right' }}>BUFFER</div>
-        </div>
-
-        {history.length === 0 ? (
-          <div style={{ padding: '32px', textAlign: 'center', color: 'var(--ink-secondary)', fontSize: '13px' }}>
-            No historical allocation plans recorded yet. Plans are automatically archived when calculated.
-          </div>
-        ) : (
-          history.map((h, idx) => (
-            <div
-              key={h.id}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '120px 140px 130px 130px 130px 130px',
-                padding: '12px 20px',
-                borderBottom: idx < history.length - 1 ? '1px solid var(--border-hairline)' : 'none',
-                alignItems: 'center',
-                fontSize: '12.5px',
-                fontFamily: 'var(--font-mono)'
-              }}
-            >
-              <div style={{ fontWeight: 600 }}>{h.month}</div>
-              <div style={{ textAlign: 'right', color: h.is_deficit ? 'var(--signal-alert)' : 'var(--signal-forest)' }}>
-                {h.is_deficit ? '-' : '+'}₹{Math.abs(h.monthly_surplus).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </div>
-              <div style={{ textAlign: 'right' }}>₹{h.allocations.emergency_fund.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-              <div style={{ textAlign: 'right' }}>₹{h.allocations.goals.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-              <div style={{ textAlign: 'right' }}>₹{h.allocations.long_term_wealth.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-              <div style={{ textAlign: 'right' }}>₹{h.allocations.flexible_buffer.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }
