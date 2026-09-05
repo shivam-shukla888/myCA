@@ -218,8 +218,32 @@ export const authApi = {
       business_type: string;
       preferred_language: string;
       financial_year_start: number;
+      onboarding_completed?: boolean;
       created_at: string;
     }>('/auth/me');
+  },
+  updateMe: async (data: {
+    full_name?: string;
+    phone?: string | null;
+    business_type?: string;
+    preferred_language?: string;
+    financial_year_start?: number;
+    onboarding_completed?: boolean;
+  }) => {
+    return request<{
+      id: string;
+      full_name: string;
+      role: 'USER' | 'ADMIN';
+      business_type: string;
+      preferred_language: string;
+      financial_year_start: number;
+      onboarding_completed: boolean;
+      created_at: string;
+      updated_at?: string;
+    }>('/auth/me', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 };
 
@@ -883,4 +907,6 @@ export const ocrApi = {
     });
   },
 };
+
+
 

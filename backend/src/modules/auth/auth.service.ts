@@ -1,4 +1,4 @@
-import { SignupInput, LoginInput, MagicLinkInput } from './auth.schema.js';
+import { SignupInput, LoginInput, MagicLinkInput, UpdateProfileInput } from './auth.schema.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { env } from '../../config/env.js';
 import { getSupabaseClient, getSupabaseAdminClient } from '../../config/supabase.js';
@@ -243,8 +243,8 @@ export class AuthService {
       throw new AppError('User ID is required', 400, 'INVALID_USER_ID');
     }
 
-    // In test environment, if userId is explicitly registered in testUserRoles, return test profile
-    if (env.NODE_ENV === 'test' && testUserRoles.has(userId)) {
+    // In non-production environments, if userId is explicitly registered in testUserRoles, return test profile
+    if (env.NODE_ENV !== 'production' && testUserRoles.has(userId)) {
       return {
         id: userId,
         full_name: 'Test Step4 User',
@@ -278,6 +278,57 @@ export class AuthService {
     } catch (err: any) {
       if (err instanceof AppError) throw err;
       throw new AppError(`Profile retrieval failed: ${err.message}`, 500, 'DATABASE_PROFILE_ERROR');
+    }
+  }
+
+  /**
+   * Update authenticated user profile fields.
+   * Disallows modifying role, id, or user_id.
+   */
+  async updateProfile(userId: string, input: UpdateProfileInput) {
+    if (!userId) {
+      throw new AppError('User ID is required', 400, 'INVALID_USER_ID');
+    }
+
+    // In non-production environments, support test users
+    if (env.NODE_ENV !== 'production' && testUserRoles.has(userId)) {
+      return {
+        id: userId,
+        full_name: input.full_name ?? 'Test Step4 User',
+        phone: input.phone !== undefined ? input.phone : null,
+        business_type: input.business_type ?? 'individual',
+        preferred_language: input.preferred_language ?? 'en',
+        financial_year_start: input.financial_year_start ?? 4,
+        role: testUserRoles.get(userId) || 'USER',
+        onboarding_completed: input.onboarding_completed ?? true,
+        updated_at: new Date().toISOString(),
+      };
+    }
+
+    try {
+      const supabaseAdmin = getSupabaseAdminClient();
+      const { data, error } = await supabaseAdmin
+        .from('profiles')
+        .update({
+          ...input,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select('id, full_name, phone, business_type, preferred_language, financial_year_start, role, onboarding_completed, created_at, updated_at')
+        .single();
+
+      if (error) {
+        throw new AppError(`Profile update failed: ${error.message}`, 500, 'DATABASE_PROFILE_UPDATE_ERROR');
+      }
+
+      if (!data) {
+        throw new AppError('User profile not found in database', 404, 'PROFILE_NOT_FOUND');
+      }
+
+      return data;
+    } catch (err: any) {
+      if (err instanceof AppError) throw err;
+      throw new AppError(`Profile update failed: ${err.message}`, 500, 'DATABASE_PROFILE_UPDATE_ERROR');
     }
   }
 }
