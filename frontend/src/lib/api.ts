@@ -745,3 +745,57 @@ export const actionApi = {
   },
 };
 
+export interface ExtractedFieldEvidence {
+  field_name: string;
+  value: any;
+  confidence: number;
+  raw_text: string;
+  page_number?: number;
+  section?: string;
+}
+
+export interface ExtractionResult {
+  document_id: string;
+  document_type: string;
+  extraction_status: 'draft_ready' | 'needs_review' | 'extraction_failed' | 'confirmed';
+  confidence_score: number;
+  extracted_data: Record<string, any>;
+  evidence: ExtractedFieldEvidence[];
+  missing_information: string[];
+  validation_errors: string[];
+  warnings: string[];
+  is_mock?: boolean;
+  confirmed_at?: string;
+  imported_record_ids?: string[];
+}
+
+export interface ConfirmDocumentInput {
+  document_id: string;
+  reviewed_data: Record<string, any>;
+  import_target: 'transactions' | 'profile' | 'archive_only';
+}
+
+export const ocrApi = {
+  extract: async (documentId: string) => {
+    return request<ExtractionResult>(`/ocr/extract/${documentId}`, {
+      method: 'POST',
+    });
+  },
+  getDraft: async (documentId: string) => {
+    return request<ExtractionResult>(`/ocr/draft/${documentId}`);
+  },
+  confirm: async (data: ConfirmDocumentInput) => {
+    return request<{
+      success: boolean;
+      message: string;
+      document_id: string;
+      imported_count: number;
+      imported_record_ids: string[];
+      status: string;
+    }>('/ocr/confirm', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+};
+

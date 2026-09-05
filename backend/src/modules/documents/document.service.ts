@@ -10,6 +10,7 @@ export interface DocumentRecord extends CreateDocumentInput {
   storage_path: string;
   extraction_status: 'pending' | 'processing' | 'completed' | 'failed';
   extraction_confidence?: number | null;
+  extracted_data?: any;
   uploaded_at: string;
   created_at: string;
   updated_at: string;
@@ -281,6 +282,76 @@ export class DocumentService {
 
     inMemoryDocuments.delete(id);
     return { success: true, id };
+  }
+
+  async updateDocumentExtraction(
+    userId: string,
+    id: string,
+    updates: {
+      extraction_status: 'pending' | 'processing' | 'completed' | 'failed';
+      extraction_confidence?: number | null;
+      extracted_data: any;
+    }
+  ): Promise<DocumentRecord> {
+    if (!userId) {
+      throw new AppError('User context is required', 401, 'UNAUTHORIZED');
+    }
+
+    const isProduction = env.NODE_ENV === 'production';
+    const existing = await this.getDocumentById(userId, id);
+
+    if (existing.user_id !== userId) {
+      throw new AppError('Access denied: You do not have permission to update this document', 403, 'FORBIDDEN');
+    }
+
+    const now = new Date().toISOString();
+    const updatedRecord: DocumentRecord = {
+      ...existing,
+      extraction_status: updates.extraction_status,
+      extraction_confidence: updates.extraction_confidence !== undefined ? updates.extraction_confidence : existing.extraction_confidence,
+      extracted_data: updates.extracted_data,
+      updated_at: now,
+    };
+
+    try {
+      const supabase = getSupabaseAdminClient();
+      const { data, error } = await supabase
+        .from('documents')
+        .update({
+          extraction_status: updates.extraction_status,
+          extraction_confidence: updates.extraction_confidence !== undefined ? updates.extraction_confidence : null,
+          extracted_data: updates.extracted_data,
+          updated_at: now,
+        })
+        .eq('id', id)
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+      if (error && isProduction) {
+        throw new AppError(`Document extraction update failed: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+      }
+
+      if (data) {
+        const saved = { ...existing, ...data } as DocumentRecord;
+        if (!isProduction) {
+          inMemoryDocuments.set(id, saved);
+        }
+        return saved;
+      }
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Document extraction update failed in production database', 500, 'DATABASE_PERSISTENCE_FAILED');
+      }
+    }
+
+    if (isProduction) {
+      throw new AppError('Document extraction update failed in production environment', 500, 'DATABASE_PERSISTENCE_FAILED');
+    }
+
+    inMemoryDocuments.set(id, updatedRecord);
+    return updatedRecord;
   }
 }
 

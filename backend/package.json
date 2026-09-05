@@ -17,7 +17,8 @@
     "test:allocation": "tsx tests/step3_allocation.test.ts",
     "test:freedom": "tsx tests/step4_freedom.test.ts",
     "test:coach": "tsx tests/step5_coach.test.ts",
-    "test:action": "tsx tests/step6_action_engine.test.ts"
+    "test:action": "tsx tests/step6_action_engine.test.ts",
+    "test:ocr": "tsx tests/step7_ocr_automation.test.ts"
   },
   "keywords": [
     "personal-ai-ca",

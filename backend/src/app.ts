@@ -18,6 +18,7 @@ import { allocationRoutes } from './modules/allocation/allocation.routes.js';
 import freedomRoutes from './modules/freedom/freedom.routes.js';
 import actionRoutes from './modules/action/action.routes.js';
 import jobRoutes from './modules/jobs/job.routes.js';
+import ocrRoutes from './modules/ocr/ocr.routes.js';
 
 export function createApp(): Express {
   const app = express();
@@ -84,6 +85,7 @@ export function createApp(): Express {
   app.use('/api/v1/freedom', standardApiRateLimiter, requireAuth, freedomRoutes);
   app.use('/api/v1/action', standardApiRateLimiter, requireAuth, actionRoutes);
   app.use('/api/v1/documents', standardApiRateLimiter, requireAuth, documentRoutes);
+  app.use('/api/v1/ocr', standardApiRateLimiter, requireAuth, ocrRoutes);
   app.use('/api/v1/chat', aiRateLimiter, requireAuth, chatRoutes);
   app.use('/api/v1/reports', standardApiRateLimiter, requireAuth, reportRoutes);
   app.use('/api/v1/jobs', standardApiRateLimiter, jobRoutes);
