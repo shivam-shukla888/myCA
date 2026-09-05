@@ -9,6 +9,7 @@ const router = Router();
 // Public auth endpoints
 router.post('/signup', validateBody(signupSchema), authController.signup.bind(authController));
 router.post('/login', validateBody(loginSchema), authController.login.bind(authController));
+router.post('/refresh', authController.refresh.bind(authController));
 router.post('/magic-link', validateBody(magicLinkSchema), authController.magicLink.bind(authController));
 
 // Protected auth profile and session management endpoints

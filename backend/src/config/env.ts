@@ -34,6 +34,29 @@ if (isProduction && enableDevAuth) {
   throw new Error('FATAL SECURITY VIOLATION: Development authentication cannot be enabled in production environment. Failing closed.');
 }
 
+export function validateProductionEnvironment(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const missing: string[] = [];
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_URL.startsWith('http')) missing.push('SUPABASE_URL');
+  if (!process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY.length < 20) missing.push('SUPABASE_ANON_KEY');
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY.length < 20) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY.length < 10) missing.push('GROQ_API_KEY');
+  if (!process.env.ENCRYPTION_SECRET_KEY || process.env.ENCRYPTION_SECRET_KEY.length < 32) missing.push('ENCRYPTION_SECRET_KEY');
+  if (!process.env.CORS_ORIGIN || process.env.CORS_ORIGIN === '*') missing.push('CORS_ORIGIN (explicit allowlist required, wildcard * forbidden in production)');
+
+  if (missing.length > 0) {
+    const errMsg = `FATAL CONFIGURATION ERROR: Missing or invalid required production environment variables:\n  - ${missing.join('\n  - ')}\nApplication cannot boot in production. Failing closed.`;
+    console.error(errMsg);
+    throw new Error(errMsg);
+  }
+}
+
+// In production, validate immediately at startup
+if (isProduction) {
+  validateProductionEnvironment();
+}
+
 export function validateEncryptionConfig(isProd: boolean, key?: string): void {
   const effectiveKey = key || '';
   if (isProd) {
@@ -47,12 +70,10 @@ export function validateEncryptionConfig(isProd: boolean, key?: string): void {
   }
 }
 
-const defaultProdFallbackKey = 'c8f7d9e1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9';
-const rawEncryptionKey = process.env.ENCRYPTION_SECRET_KEY || (isProduction ? defaultProdFallbackKey : '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
-if (!process.env.ENCRYPTION_SECRET_KEY && isProduction) {
-  console.warn('[SECURITY NOTICE] ENCRYPTION_SECRET_KEY not set in environment. Using standard production fallback key. Configure custom key in Render dashboard.');
-}
-validateEncryptionConfig(isProduction, rawEncryptionKey);
+// PRODUCTION HARDENING: No hardcoded fallback encryption key.
+// Test environments use a deterministic test key; all others require env var.
+const rawEncryptionKey = process.env.ENCRYPTION_SECRET_KEY || (process.env.NODE_ENV === 'test' ? '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' : '');
+validateEncryptionConfig(isProduction, process.env.ENCRYPTION_SECRET_KEY);
 
 const geminiKey = process.env.GEMINI_API_KEY || '';
 const primaryKey = process.env.PRIMARY_AI_API_KEY || '';
@@ -61,12 +82,14 @@ const groqKey = process.env.GROQ_API_KEY || '';
 export const env: EnvConfig = {
   PORT: parseInt(process.env.PORT || '4000', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
+  // PRODUCTION HARDENING: No hardcoded Supabase credentials in source code.
+  // These MUST come from environment variables.
   SUPABASE_URL: (process.env.SUPABASE_URL && process.env.SUPABASE_URL.startsWith('http'))
     ? process.env.SUPABASE_URL
-    : 'https://pesvgxqpdeeyhjvqoaip.supabase.co',
+    : '',
   SUPABASE_ANON_KEY: (process.env.SUPABASE_ANON_KEY && process.env.SUPABASE_ANON_KEY.length > 20)
     ? process.env.SUPABASE_ANON_KEY
-    : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlc3ZneHFwZGVleWhqdnFvYWlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjA3MjgsImV4cCI6MjA4ODYzNjcyOH0.Bs6MLeIqYyL4Y6lH-GgBAPzswQBP1I8BtTPgiP4L7zo',
+    : '',
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET || '',
   GEMINI_API_KEY: geminiKey,
@@ -75,8 +98,9 @@ export const env: EnvConfig = {
   PRIMARY_AI_MODEL: process.env.PRIMARY_AI_MODEL || 'openai/gpt-oss-120b',
   GROQ_API_KEY: groqKey,
   GROQ_MODEL: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
-  ENCRYPTION_SECRET_KEY: isProduction ? rawEncryptionKey : (rawEncryptionKey || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
-  CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
+  ENCRYPTION_SECRET_KEY: rawEncryptionKey,
+  // PRODUCTION HARDENING: No wildcard CORS default. Must be explicitly configured.
+  CORS_ORIGIN: process.env.CORS_ORIGIN || '',
   ENABLE_DEV_AUTH: enableDevAuth,
   ALLOWED_REDIRECT_URLS: (process.env.ALLOWED_REDIRECT_URLS || 'http://localhost:3000,https://personal-ai-ca.vercel.app')
     .split(',')

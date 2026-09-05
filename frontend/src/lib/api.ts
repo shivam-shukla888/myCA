@@ -19,32 +19,7 @@ function getApiUrl(): string {
   // Default to local development server
   return 'http://localhost:4000/api/v1';
 }
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
-  }
-  if (typeof window !== 'undefined') {
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    if (!isLocal) {
-      // In production, require explicit API URL to avoid fallback to localhost
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('NEXT_PUBLIC_API_URL must be set in production environment');
-      }
-      return 'https://myca-backend.onrender.com/api/v1';
-    }
-  }
-  return 'http://localhost:4000/api/v1';
-}
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
-  }
-  if (typeof window !== 'undefined') {
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    if (!isLocal) {
-      return 'https://myca-backend.onrender.com/api/v1';
-    }
-  }
-  return 'http://localhost:4000/api/v1';
-}
+// Duplicate getApiUrl definitions removed
 
 const API_URL = getApiUrl();
 
@@ -52,15 +27,19 @@ export class ApiError extends Error {
   code: string;
   statusCode: number;
   requestId?: string;
-  details?: any;
+  details?: unknown;
 
-  constructor(message: string, statusCode: number, code: string, details?: any, requestId?: string) {
+  constructor(message: string, statusCode: number, code: string, details?: unknown, requestId?: string) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
     this.code = code;
     this.details = details;
     this.requestId = requestId;
+  }
+
+  get status(): number {
+    return this.statusCode;
   }
 }
 
@@ -184,13 +163,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}, isRetry =
     }
 
     return json.data as T;
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeoutId);
     if (err instanceof ApiError) throw err;
-    if (err.name === 'AbortError') {
+    if (err instanceof Error && err.name === 'AbortError') {
       throw new ApiError('Request timed out after 15 seconds', 408, 'REQUEST_TIMEOUT');
     }
-    throw new ApiError(err.message || 'Network request failed', 500, 'NETWORK_ERROR');
+    const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Network request failed';
+    throw new ApiError(message, 500, 'NETWORK_ERROR');
   }
 }
 
@@ -458,23 +438,25 @@ export const chatApi = {
 };
 
 // 5. Reports APIs
+export interface TaxReportResponse {
+  report_type: string;
+  financial_year: string;
+  generated_at: string;
+  currency: string;
+  summary: {
+    total_income: number;
+    total_expenses: number;
+    net_surplus: number;
+    total_tax_deductions_claimed: number;
+    estimated_taxable_income: number;
+    transaction_count: number;
+  };
+  deductions_breakdown: Array<{ category: string; amount: number }>;
+}
+
 export const reportApi = {
   generate: async (reportType: string, financialYear = '2025-26') => {
-    return request<{
-      report_type: string;
-      financial_year: string;
-      generated_at: string;
-      currency: string;
-      summary: {
-        total_income: number;
-        total_expenses: number;
-        net_surplus: number;
-        total_tax_deductions_claimed: number;
-        estimated_taxable_income: number;
-        transaction_count: number;
-      };
-      deductions_breakdown: Array<{ category: string; amount: number }>;
-    }>('/reports/generate', {
+    return request<TaxReportResponse>('/reports/generate', {
       method: 'POST',
       body: JSON.stringify({ report_type: reportType, financial_year: financialYear }),
     });
@@ -482,23 +464,23 @@ export const reportApi = {
 };
 
 // 6. Admin APIs
+export interface AdminAuditLogItem {
+  id: string;
+  user_id: string;
+  query: string;
+  response: string;
+  model_used: string;
+  confidence_score: number;
+  confidence_level: string;
+  topic_category: string;
+  disclaimer_shown: boolean;
+  reviewed_by_human: boolean;
+  created_at: string;
+}
+
 export const adminApi = {
   getAuditLogs: async () => {
-    return request<
-      Array<{
-        id: string;
-        user_id: string;
-        query: string;
-        response: string;
-        model_used: string;
-        confidence_score: number;
-        confidence_level: string;
-        topic_category: string;
-        disclaimer_shown: boolean;
-        reviewed_by_human: boolean;
-        created_at: string;
-      }>
-    >('/admin/audit-logs');
+    return request<AdminAuditLogItem[]>('/admin/audit-logs');
   },
 };
 
@@ -712,7 +694,7 @@ export const freedomApi = {
     planning_withdrawal_rate: number;
     planning_scenario: 'conservative' | 'base' | 'optimistic';
   }) => {
-    return request<{ message: string; profile: any }>('/freedom/assumptions', {
+    return request<{ message: string; profile: Record<string, unknown> }>('/freedom/assumptions', {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -730,7 +712,7 @@ export interface ActionItem {
   target_gap: number;
   why_rationale: string;
   is_funded: boolean;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RankedGoalActionItem {
@@ -850,7 +832,7 @@ export const actionApi = {
 
 export interface ExtractedFieldEvidence {
   field_name: string;
-  value: any;
+  value: unknown;
   confidence: number;
   raw_text: string;
   page_number?: number;
@@ -862,7 +844,7 @@ export interface ExtractionResult {
   document_type: string;
   extraction_status: 'draft_ready' | 'needs_review' | 'extraction_failed' | 'confirmed';
   confidence_score: number;
-  extracted_data: Record<string, any>;
+  extracted_data: Record<string, unknown>;
   evidence: ExtractedFieldEvidence[];
   missing_information: string[];
   validation_errors: string[];
@@ -874,7 +856,7 @@ export interface ExtractionResult {
 
 export interface ConfirmDocumentInput {
   document_id: string;
-  reviewed_data: Record<string, any>;
+  reviewed_data: Record<string, unknown>;
   import_target: 'transactions' | 'profile' | 'archive_only';
 }
 

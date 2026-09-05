@@ -93,6 +93,7 @@ export function createApp(): Express {
   app.use('/api/v1/ocr', standardApiRateLimiter, requireAuth, ocrRoutes);
   app.use('/api/v1/chat', aiRateLimiter, requireAuth, chatRoutes);
   app.use('/api/v1/reports', standardApiRateLimiter, requireAuth, reportRoutes);
+  // Jobs route (protected by requireAuth inside job.routes.ts after production guard)
   app.use('/api/v1/jobs', standardApiRateLimiter, jobRoutes);
 
   // Admin APIs (requires valid Supabase JWT + ADMIN role)

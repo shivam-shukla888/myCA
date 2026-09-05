@@ -25,7 +25,8 @@ export class ChatController {
       const result = await chatService.generateMonthlyReview(userId, req.body || {});
       res.status(200).json({ data: result });
     } catch (err) {
-      console.error('getMonthlyReview error:', err);
+      // PRODUCTION HARDENING: Log error message only, not full error object (may contain sensitive data)
+      console.error('[CHAT_CONTROLLER] getMonthlyReview error:', (err as Error)?.message || 'Unknown error');
       next(err);
     }
   }

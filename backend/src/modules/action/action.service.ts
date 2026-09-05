@@ -248,14 +248,25 @@ export class ActionService {
         .eq('user_id', userId)
         .order('month', { ascending: false });
 
-      if (!error && data && data.length > 0) {
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Failed to retrieve confirmed action plans: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
+        }
+      } else if (data) {
         const plans = data
           .map((d: any) => d.details?.action_plan)
           .filter(Boolean) as ActionPlan[];
-        if (plans.length > 0) return plans;
+        if (plans.length > 0 || isProduction) return plans;
       }
-    } catch {
-      // Continue to in-memory fallback
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      if (isProduction) {
+        throw new AppError('Action plan query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+      }
+    }
+
+    if (isProduction) {
+      throw new AppError('Action plan query failed in production database', 500, 'DATABASE_QUERY_FAILED');
     }
 
     return Array.from(inMemoryConfirmedActionPlans.values())

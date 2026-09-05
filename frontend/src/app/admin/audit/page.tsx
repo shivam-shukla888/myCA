@@ -1,34 +1,41 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { adminApi } from '../../../lib/api';
+import { adminApi, AdminAuditLogItem } from '../../../lib/api';
 import { useAuth } from '../../../context/AuthContext';
-import { ShieldAlert, ShieldCheck, Lock, AlertOctagon } from 'lucide-react';
+import { Lock } from 'lucide-react';
 
 export default function AdminAuditPage() {
   const { user } = useAuth();
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<AdminAuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user?.role !== 'ADMIN') {
-      setLoading(false);
       return;
     }
 
-    async function fetchAudit() {
-      try {
-        const data = await adminApi.getAuditLogs();
-        setLogs(data || []);
-      } catch (err: any) {
-        setError(err.message || 'Access to admin audit logs denied');
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchAudit();
-  }, [user]);
+    let ignore = false;
+    adminApi.getAuditLogs()
+      .then((data) => {
+        if (!ignore) {
+          setLogs(data || []);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          const msg = err instanceof Error ? err.message : 'Access to admin audit logs denied';
+          setError(msg);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [user?.role]);
 
   // RBAC Access Restriction Gate
   if (user?.role !== 'ADMIN') {
@@ -108,7 +115,15 @@ export default function AdminAuditPage() {
           <div>HUMAN REVIEW</div>
         </div>
 
-        {logs.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+            LOADING AUDIT LEDGER...
+          </div>
+        ) : error ? (
+          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--signal-alert)', fontSize: '12px' }}>
+            {error}
+          </div>
+        ) : logs.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-tertiary)' }}>
             No administrative audit entries recorded yet.
           </div>

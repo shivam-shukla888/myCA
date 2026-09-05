@@ -9,6 +9,17 @@ interface CachedResponse {
 const IDEMPOTENCY_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 const idempotencyStore = new Map<string, CachedResponse>();
 
+// PRODUCTION HARDENING: Periodic cleanup to prevent memory leaks on long-running instances.
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // Every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of idempotencyStore) {
+    if (now - entry.timestamp > IDEMPOTENCY_TTL_MS) {
+      idempotencyStore.delete(key);
+    }
+  }
+}, CLEANUP_INTERVAL_MS).unref();
+
 export function idempotencyMiddleware(req: Request, res: Response, next: NextFunction) {
   // Only apply to mutating requests (POST, PUT, PATCH, DELETE)
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {

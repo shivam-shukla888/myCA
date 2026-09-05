@@ -5,13 +5,20 @@ import { createApp } from '../src/app.js';
 import { jobQueue } from '../src/modules/jobs/jobQueue.js';
 import { aiService } from '../src/modules/ai/ai.service.js';
 
+import { testUserRoles } from '../src/middleware/auth.js';
+
 const app = createApp();
 
 // Enforce deterministic mock AI provider for performance test suite
 aiService.setProvider(aiService.getMockProvider());
 
-const userAToken = 'mock-test-token:11111111-1111-4111-a111-111111111111:userA@example.com';
-const userBToken = 'mock-test-token:22222222-2222-4222-a222-222222222222:userB@example.com';
+const userAId = '11111111-1111-4111-a111-111111111111';
+const userBId = '22222222-2222-4222-a222-222222222222';
+testUserRoles.set(userAId, 'USER');
+testUserRoles.set(userBId, 'USER');
+
+const userAToken = `mock-test-token:${userAId}:userA@example.com`;
+const userBToken = `mock-test-token:${userBId}:userB@example.com`;
 
 describe('Step 7 — Performance, Idempotency & Job Lifecycle Tests', () => {
   // TEST 1: Background Job Creation and Lifecycle

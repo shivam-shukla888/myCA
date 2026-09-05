@@ -29,10 +29,15 @@ export class OCRService {
 
     // 2. Obtain file buffer
     let fileBuffer: Buffer;
+    const isMockAllowed = process.env.NODE_ENV !== 'production' && process.env.ENABLE_TEST_OCR_MOCK === 'true';
+
     try {
       const supabase = getSupabaseAdminClient();
       const { data, error } = await supabase.storage.from('user-documents').download(document.storage_path);
       if (error || !data) {
+        if (!isMockAllowed) {
+          throw new AppError(`Failed to retrieve document binary from storage: ${error?.message || 'File not found'}`, 500, 'STORAGE_DOWNLOAD_FAILED');
+        }
         let mockContent = `Document: ${document.file_name}\nType: ${document.document_type}`;
         if (document.document_type === 'bank_statement') {
           mockContent += `\nOpening Balance: ₹50,000\nClosing Balance: ₹82,500\nAccount: HDFC-****4321`;
@@ -46,13 +51,12 @@ export class OCRService {
         const arrayBuffer = await data.arrayBuffer();
         fileBuffer = Buffer.from(arrayBuffer);
       }
-    } catch {
-      let mockContent = `Document: ${document.file_name}\nType: ${document.document_type}`;
-      if (document.document_type === 'bank_statement') {
-        mockContent += `\nOpening Balance: ₹50,000\nClosing Balance: ₹82,500\nAccount: HDFC-****4321`;
-      } else if (document.document_type === 'salary_slip') {
-        mockContent += `\nGross Salary: ₹1,20,000\nNet Pay: ₹95,000\nTDS: ₹15,000\nEmployer: Acme Technologies Pvt Ltd`;
+    } catch (err: any) {
+      if (err instanceof AppError) throw err;
+      if (!isMockAllowed) {
+        throw new AppError(`Storage retrieval failed: ${err.message}`, 500, 'STORAGE_DOWNLOAD_FAILED');
       }
+      let mockContent = `Document: ${document.file_name}\nType: ${document.document_type}`;
       fileBuffer = Buffer.from(mockContent, 'utf-8');
     }
 

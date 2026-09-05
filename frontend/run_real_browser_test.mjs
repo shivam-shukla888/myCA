@@ -1,6 +1,4 @@
 import puppeteer from 'puppeteer-core';
-import fs from 'fs';
-import path from 'path';
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const ARTIFACT_DIR = 'C:\\Users\\thesh\\.gemini\\antigravity-ide\\brain\\3a6c54fb-a7cb-4830-81d2-36f7d64268a5';

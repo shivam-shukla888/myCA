@@ -25,7 +25,8 @@ declare global {
   }
 }
 
-// In-memory mock profiles store for unit/security test users
+// In-memory mock profiles store for unit/security test users.
+// PRODUCTION HARDENING: This map is NEVER consulted in production.
 export const testUserRoles = new Map<string, UserRole>();
 
 /**
@@ -116,22 +117,40 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     // 4. Retrieve verified user role from profiles table (or test store)
     let userRole: UserRole = 'USER';
-    if (testUserRoles.has(userId)) {
+    // PRODUCTION HARDENING: testUserRoles is NEVER consulted in production
+    if (env.NODE_ENV !== 'production' && testUserRoles.has(userId)) {
       userRole = testUserRoles.get(userId)!;
     } else {
       try {
         const supabaseAdmin = getSupabaseAdminClient();
-        const { data: profile } = await supabaseAdmin
+        const { data: profile, error: profileErr } = await supabaseAdmin
           .from('profiles')
           .select('role')
           .eq('id', userId)
-          .single();
+          .maybeSingle();
+
+        if (profileErr) {
+          throw new AppError(
+            `Database role lookup failed: ${profileErr.message}`,
+            500,
+            'DATABASE_ROLE_LOOKUP_FAILED'
+          );
+        }
 
         if (profile && (profile.role === 'ADMIN' || profile.role === 'USER')) {
           userRole = profile.role as UserRole;
+        } else if (!profile) {
+          // PRODUCTION HARDENING: Fail closed when profile is missing.
+          // Do NOT silently default to USER role.
+          throw new AppError(
+            'User profile not found. Authentication requires a valid profile record.',
+            403,
+            'PROFILE_NOT_FOUND_FAIL_CLOSED'
+          );
         }
-      } catch (err) {
-        userRole = 'USER';
+      } catch (err: any) {
+        if (err instanceof AppError) throw err;
+        throw new AppError(`Role verification failure: ${err.message}`, 500, 'DATABASE_ROLE_LOOKUP_FAILED');
       }
     }
 
@@ -148,17 +167,31 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       role: userRole,
     };
 
-    // 6. Security Check: Never allow client body to override or inject user_id
-    if (req.body && typeof req.body === 'object' && 'user_id' in req.body) {
-      const attemptedUserId = req.body.user_id;
-      delete req.body.user_id;
-
-      if (attemptedUserId && attemptedUserId !== userId) {
-        throw new AppError(
-          'Client-supplied user_id does not match authenticated identity',
-          403,
-          'FORBIDDEN_USER_ID_OVERRIDE'
-        );
+    // 6. Security Check: Never allow client body, query, or params to override or inject user identity
+    const identityFields = ['user_id', 'owner_id', 'profile_id'];
+    for (const field of identityFields) {
+      // Check body
+      if (req.body && typeof req.body === 'object' && field in req.body) {
+        const attempted = req.body[field];
+        if (attempted && attempted !== userId && userRole !== 'ADMIN') {
+          throw new AppError(
+            `Client-supplied ${field} does not match authenticated identity`,
+            403,
+            'FORBIDDEN_USER_ID_OVERRIDE'
+          );
+        }
+        delete req.body[field];
+      }
+      // Check query
+      if (req.query && typeof req.query === 'object' && field in req.query) {
+        const attempted = req.query[field];
+        if (attempted && attempted !== userId && userRole !== 'ADMIN') {
+          throw new AppError(
+            `Client-supplied ${field} query parameter does not match authenticated identity`,
+            403,
+            'FORBIDDEN_USER_ID_OVERRIDE'
+          );
+        }
       }
     }
 

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../lib/api';
-import { ShieldCheck, Mail, Lock, ArrowRight } from 'lucide-react';
+import { Mail, Lock, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,8 +31,9 @@ export default function LoginPage() {
         const res = await authApi.magicLink({ email });
         setMessage(res.message || 'Magic link dispatched to your email address.');
       }
-    } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Authentication failed';
+      setError(msg);
     } finally {
       setLoading(false);
     }

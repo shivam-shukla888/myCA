@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
-import { chatApi, ChatResponse, MonthlyReviewResponse } from '../../lib/api';
+import { chatApi, ChatResponse, MonthlyReviewResponse, ApiError } from '../../lib/api';
 import { ConfidenceMeter } from '../../components/intelligence/ConfidenceMeter';
 import { EvidenceNode } from '../../components/intelligence/EvidenceNode';
 import { DisclaimerGate } from '../../components/intelligence/DisclaimerGate';
@@ -13,11 +13,6 @@ import {
   ShieldCheck,
   Lock,
   Calendar,
-  TrendingUp,
-  AlertCircle,
-  CheckCircle2,
-  ArrowRight,
-  HelpCircle,
 } from 'lucide-react';
 
 export default function IntelligencePage() {
@@ -59,16 +54,20 @@ export default function IntelligencePage() {
         setInquiryHistory((prev) => [{ query: inquiryText, response: res }, ...prev]);
         setQuery('');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const isApiError = err instanceof ApiError;
+      const status = isApiError ? err.status : 0;
+      const code = isApiError ? err.code : '';
+      const message = err instanceof Error ? err.message : 'The intelligence pipeline encountered an error during evaluation.';
       const isAuthError =
-        err.statusCode === 401 ||
-        err.code?.includes('UNAUTHORIZED') ||
-        err.message?.toLowerCase().includes('authentication') ||
-        err.message?.toLowerCase().includes('unauthorized');
+        status === 401 ||
+        code.includes('UNAUTHORIZED') ||
+        message.toLowerCase().includes('authentication') ||
+        message.toLowerCase().includes('unauthorized');
       setError({
         message: isAuthError
           ? 'Authentication required. Your session is unauthenticated or has expired.'
-          : err.message || 'The intelligence pipeline encountered an error during evaluation.',
+          : message,
         safeToRetry: true,
         isAuthError,
       });
@@ -85,9 +84,10 @@ export default function IntelligencePage() {
       setAnalysis(res);
       setConversationId(res.conversation_id);
       setInquiryHistory((prev) => [{ query: 'Monthly Financial Review', response: res }, ...prev]);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to generate monthly review.';
       setError({
-        message: err.message || 'Failed to generate monthly review.',
+        message,
         safeToRetry: true,
       });
     } finally {
@@ -497,7 +497,7 @@ export default function IntelligencePage() {
               }}
             >
               <div className="meta-tag" style={{ color: 'var(--signal-forest)' }}>
-                WHAT'S WORKING
+                WHAT&apos;S WORKING
               </div>
               <div style={{ fontSize: '14px', lineHeight: 1.5, color: 'var(--ink-primary)' }}>
                 {reviewPoints.whatWentWell ||

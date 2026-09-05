@@ -49,7 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           full_name: profile.full_name,
           business_type: profile.business_type,
         });
-      } catch (e: any) {
+      } catch (e: unknown) {
+        console.warn('[AuthContext] Failed to restore auth session:', e);
         // Token is invalid or expired, clear session
         setAuthToken(null);
         setToken(null);

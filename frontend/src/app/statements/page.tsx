@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { reportApi } from '../../lib/api';
-import { Printer, ShieldAlert, FileText, CheckCircle } from 'lucide-react';
+import { reportApi, TaxReportResponse } from '../../lib/api';
+import { Printer, ShieldAlert } from 'lucide-react';
 
 export default function StatementsPage() {
-  const [report, setReport] = useState<any>(null);
+  const [report, setReport] = useState<TaxReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,15 +15,33 @@ export default function StatementsPage() {
     try {
       const res = await reportApi.generate('tax_summary', '2025-26');
       setReport(res);
-    } catch (err: any) {
-      setError(err.message || 'Failed to generate statement from ledger.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to generate statement from ledger.';
+      setError(msg);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    fetchReport();
+    let ignore = false;
+    reportApi.generate('tax_summary', '2025-26')
+      .then((res) => {
+        if (!ignore) {
+          setReport(res);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          const msg = err instanceof Error ? err.message : 'Failed to generate statement from ledger.';
+          setError(msg);
+          setLoading(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   return (
@@ -81,7 +99,24 @@ export default function StatementsPage() {
       )}
 
       {/* Editorial Fiscal Statement Canvas */}
-      {!error && (
+      {loading && !error && (
+        <div style={{
+          background: 'var(--canvas-surface)',
+          border: '1px solid var(--border-hairline)',
+          padding: '48px',
+          maxWidth: '900px',
+          margin: '0 auto',
+          width: '100%',
+          textAlign: 'center',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '12px',
+          color: 'var(--ink-secondary)'
+        }}>
+          COMPUTING STATUTORY FISCAL STATEMENT...
+        </div>
+      )}
+
+      {!error && !loading && (
       <div style={{
         background: 'var(--canvas-surface)',
         border: '1px solid var(--ink-primary)',
@@ -157,7 +192,7 @@ export default function StatementsPage() {
 
           <div style={{ border: '1px solid var(--border-hairline)' }}>
             {report?.deductions_breakdown && report.deductions_breakdown.length > 0 ? (
-              report.deductions_breakdown.map((item: any, idx: number) => (
+              report.deductions_breakdown.map((item, idx) => (
                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid var(--border-hairline)', fontSize: '12px' }}>
                   <span>Section {item.category?.toUpperCase() || 'DEDUCTION'}</span>
                   <span className="tabular-nums" style={{ fontWeight: 600 }}>

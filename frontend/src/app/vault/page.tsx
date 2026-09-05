@@ -5,17 +5,36 @@ import { documentApi, ocrApi, DocumentItem, ExtractionResult } from '../../lib/a
 import {
   Upload,
   FileText,
-  Download,
   ShieldCheck,
   Clock,
   AlertCircle,
   Eye,
   CheckCircle2,
   AlertTriangle,
-  Layers,
-  ArrowRight,
   X,
 } from 'lucide-react';
+
+interface ReviewTransaction {
+  date?: string;
+  description?: string;
+  type?: string;
+  direction?: 'credit' | 'debit' | string;
+  amount?: number;
+  category?: string;
+  duplicate_warning?: boolean;
+  is_tax_relevant?: boolean;
+}
+
+interface DocumentReviewData {
+  transactions?: ReviewTransaction[];
+  employer?: string;
+  salary_period?: string;
+  net_income?: number;
+  gross_income?: number;
+  employer_name?: string;
+  tax_deductions?: number;
+  [key: string]: unknown;
+}
 
 export default function VaultPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -30,7 +49,7 @@ export default function VaultPage() {
   // OCR Review Drawer / Modal
   const [activeReviewDoc, setActiveReviewDoc] = useState<DocumentItem | null>(null);
   const [draftResult, setDraftResult] = useState<ExtractionResult | null>(null);
-  const [reviewData, setReviewData] = useState<Record<string, any>>({});
+  const [reviewData, setReviewData] = useState<DocumentReviewData>({});
   const [extracting, setExtracting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -43,15 +62,33 @@ export default function VaultPage() {
     try {
       const res = await documentApi.list({ limit: 50 });
       setDocuments(res.documents || []);
-    } catch (err: any) {
-      setError(err?.message || 'Unable to connect to document vault.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unable to connect to document vault.';
+      setError(msg);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadDocuments();
+    let ignore = false;
+    documentApi.list({ limit: 50 })
+      .then((res) => {
+        if (!ignore) {
+          setDocuments(res.documents || []);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          const msg = err instanceof Error ? err.message : 'Unable to connect to document vault.';
+          setError(msg);
+          setLoading(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   async function handleUpload(e: React.FormEvent) {
@@ -71,8 +108,9 @@ export default function VaultPage() {
       setFileName('');
       setShowUpload(false);
       await loadDocuments();
-    } catch (err: any) {
-      alert(`Document registration failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Document registration failed';
+      alert(`Document registration failed: ${msg}`);
     }
   }
 
@@ -93,8 +131,9 @@ export default function VaultPage() {
       }
       setDraftResult(draft);
       setReviewData(JSON.parse(JSON.stringify(draft.extracted_data || {})));
-    } catch (err: any) {
-      setReviewError(err.message || 'Failed to extract document draft');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to extract document draft';
+      setReviewError(msg);
     } finally {
       setExtracting(false);
     }
@@ -107,7 +146,7 @@ export default function VaultPage() {
     try {
       const result = await ocrApi.confirm({
         document_id: activeReviewDoc.id,
-        reviewed_data: reviewData,
+        reviewed_data: reviewData as Record<string, unknown>,
         import_target: target,
       });
 
@@ -119,8 +158,9 @@ export default function VaultPage() {
       // Refresh draft view
       const updatedDraft = await ocrApi.getDraft(activeReviewDoc.id);
       setDraftResult(updatedDraft);
-    } catch (err: any) {
-      setReviewError(err.message || 'Confirmation failed');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Confirmation failed';
+      setReviewError(msg);
     } finally {
       setConfirming(false);
     }
@@ -231,7 +271,20 @@ export default function VaultPage() {
 
       {/* Vault Nodes Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
-        {error ? (
+        {loading ? (
+          <div style={{
+            gridColumn: '1 / -1',
+            padding: '48px',
+            border: '1px solid var(--border-hairline)',
+            background: 'var(--canvas-surface)',
+            textAlign: 'center',
+            color: 'var(--ink-secondary)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px'
+          }}>
+            LOADING VAULT ARCHIVE...
+          </div>
+        ) : error ? (
           <div style={{
             gridColumn: '1 / -1',
             padding: '36px',
@@ -486,7 +539,7 @@ export default function VaultPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {reviewData.transactions.map((tx: any, idx: number) => (
+                          {reviewData.transactions.map((tx: ReviewTransaction, idx: number) => (
                             <tr key={idx} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                               <td style={{ padding: '8px 12px' }}>
                                 <input
@@ -494,7 +547,7 @@ export default function VaultPage() {
                                   value={tx.date}
                                   disabled={draftResult.extraction_status === 'confirmed'}
                                   onChange={(e) => {
-                                    const updated = [...reviewData.transactions];
+                                    const updated = [...(reviewData.transactions || [])];
                                     updated[idx].date = e.target.value;
                                     setReviewData({ ...reviewData, transactions: updated });
                                   }}
@@ -507,7 +560,7 @@ export default function VaultPage() {
                                   value={tx.description}
                                   disabled={draftResult.extraction_status === 'confirmed'}
                                   onChange={(e) => {
-                                    const updated = [...reviewData.transactions];
+                                    const updated = [...(reviewData.transactions || [])];
                                     updated[idx].description = e.target.value;
                                     setReviewData({ ...reviewData, transactions: updated });
                                   }}
@@ -516,7 +569,7 @@ export default function VaultPage() {
                               </td>
                               <td style={{ padding: '8px 12px' }}>
                                 <span className={tx.direction === 'credit' ? 'badge-signal badge-forest' : 'badge-signal badge-amber'}>
-                                  {tx.direction.toUpperCase()}
+                                  {(tx.direction || 'DEBIT').toUpperCase()}
                                 </span>
                               </td>
                               <td style={{ padding: '8px 12px', textAlign: 'right' }}>
@@ -525,7 +578,7 @@ export default function VaultPage() {
                                   value={tx.amount}
                                   disabled={draftResult.extraction_status === 'confirmed'}
                                   onChange={(e) => {
-                                    const updated = [...reviewData.transactions];
+                                    const updated = [...(reviewData.transactions || [])];
                                     updated[idx].amount = parseFloat(e.target.value) || 0;
                                     setReviewData({ ...reviewData, transactions: updated });
                                   }}
@@ -599,13 +652,13 @@ export default function VaultPage() {
                 {draftResult.document_type === 'INVESTMENT_STATEMENT' && (
                   <div style={{ padding: '12px', background: 'var(--canvas-inset)', border: '1px solid var(--border-hairline)', fontSize: '12px' }}>
                     <div style={{ fontStyle: 'italic', marginBottom: '8px', color: 'var(--ink-secondary)' }}>
-                      {(draftResult.extracted_data as any).disclaimer}
+                      {String((draftResult.extracted_data as Record<string, unknown>).disclaimer || '')}
                     </div>
                     <div>
-                      <strong>Institution:</strong> {(draftResult.extracted_data as any).institution || 'N/A'}
+                      <strong>Institution:</strong> {String((draftResult.extracted_data as Record<string, unknown>).institution || 'N/A')}
                     </div>
                     <div>
-                      <strong>Portfolio Valuation:</strong> ₹{Number((draftResult.extracted_data as any).portfolio_total_value || 0).toLocaleString('en-IN')}
+                      <strong>Portfolio Valuation:</strong> ₹{Number((draftResult.extracted_data as Record<string, unknown>).portfolio_total_value || 0).toLocaleString('en-IN')}
                     </div>
                   </div>
                 )}

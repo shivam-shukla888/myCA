@@ -103,8 +103,11 @@ export class FinancialContextService {
     let summary: any = null;
     try {
       summary = await transactionService.getMonthlySummary(userId, month);
-    } catch {
-      // Non-fatal, fallback to zeros
+    } catch (e: any) {
+      // PRODUCTION HARDENING: Log and flag when transaction data is unavailable.
+      // AI must know it's working with missing data, not real zeros.
+      console.error(`[FINANCIAL_CONTEXT] Transaction summary retrieval failed for user=${userId} month=${month}: ${e.message || e}`);
+      missing_data_reasons.push(`Transaction data unavailable for ${month}: ${e.message || 'database error'}`);
     }
 
     const income = summary?.total_income ?? 0;

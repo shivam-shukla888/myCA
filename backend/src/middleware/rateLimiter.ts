@@ -8,6 +8,17 @@ interface RateLimitStore {
 
 const memoryStore = new Map<string, RateLimitStore>();
 
+// PRODUCTION HARDENING: Periodic cleanup to prevent memory leaks on long-running instances.
+const RL_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of memoryStore) {
+    if (now > entry.resetTime) {
+      memoryStore.delete(key);
+    }
+  }
+}, RL_CLEANUP_INTERVAL_MS).unref();
+
 export interface RateLimitOptions {
   windowMs: number;
   max: number;

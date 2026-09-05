@@ -3,13 +3,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   allocationApi,
-  freedomApi,
   actionApi,
-  FinancialProfile,
   FinancialGoal,
-  MonthlyAllocationPlan,
   ActionPlan,
-  FreedomAnalysisResponse,
   UserActionOverride,
 } from '../../lib/api';
 import {
@@ -21,17 +17,12 @@ import {
   Wallet,
   ChevronLeft,
   ChevronRight,
-  Plus,
-  Edit2,
-  Trash2,
   CheckCircle2,
   AlertCircle,
-  Clock,
   Sparkles,
   RefreshCw,
   Lock,
   RotateCcw,
-  Check,
   Zap,
 } from 'lucide-react';
 
@@ -43,9 +34,7 @@ export default function PlanPage() {
     return `${year}-${month}`;
   });
 
-  const [profile, setProfile] = useState<FinancialProfile | null>(null);
   const [goals, setGoals] = useState<FinancialGoal[]>([]);
-  const [currentPlan, setCurrentPlan] = useState<MonthlyAllocationPlan | null>(null);
   const [actionPlan, setActionPlan] = useState<ActionPlan | null>(null);
   const [actionHistory, setActionHistory] = useState<ActionPlan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,30 +57,13 @@ export default function PlanPage() {
   const [simulatedPlan, setSimulatedPlan] = useState<ActionPlan | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
 
-  // Profile Form State
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [formAge, setFormAge] = useState('30');
-  const [formEssentialExpenses, setFormEssentialExpenses] = useState('35000');
-  const [formLiquidSavings, setFormLiquidSavings] = useState('150000');
-  const [formInvestments, setFormInvestments] = useState('300000');
-  const [formDebtObligations, setFormDebtObligations] = useState('0');
-  const [formDependents, setFormDependents] = useState('0');
-  const [formHealthInsurance, setFormHealthInsurance] = useState(true);
-  const [formLifeInsurance, setFormLifeInsurance] = useState(false);
-  const [formTargetMonths, setFormTargetMonths] = useState('6');
-  const [formTargetAge, setFormTargetAge] = useState('55');
-  const [formDesiredIncome, setFormDesiredIncome] = useState('100000');
-
-  // Phase 4: Freedom Calculator State
-  const [freedomData, setFreedomData] = useState<FreedomAnalysisResponse | null>(null);
-
   // Goal Form State
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [goalTitle, setGoalTitle] = useState('');
   const [goalTargetAmount, setGoalTargetAmount] = useState('');
   const [goalCurrentAmount, setGoalCurrentAmount] = useState('0');
   const [goalType, setGoalType] = useState<FinancialGoal['goal_type']>('savings');
-  const [goalPriority, setGoalPriority] = useState<FinancialGoal['priority']>('medium');
+  const goalPriority: FinancialGoal['priority'] = 'medium';
 
   const monthDisplayLabel = useMemo(() => {
     const [year, month] = currentMonth.split('-').map(Number);
@@ -106,50 +78,6 @@ export default function PlanPage() {
     const newM = String(d.getUTCMonth() + 1).padStart(2, '0');
     setCurrentMonth(`${newY}-${newM}`);
     setSimulatedPlan(null);
-  }
-
-  async function loadInitialData() {
-    setLoading(true);
-    setError(null);
-    try {
-      const [profRes, goalsRes, historyRes, actHistoryRes] = await Promise.all([
-        allocationApi.getProfile(),
-        allocationApi.listGoals(),
-        allocationApi.listPlanHistory(),
-        actionApi.getHistory().catch(() => []),
-      ]);
-
-      if (profRes) {
-        setProfile(profRes);
-        setFormAge(profRes.age ? String(profRes.age) : '30');
-        setFormEssentialExpenses(String(profRes.monthly_essential_expenses || 0));
-        setFormLiquidSavings(String(profRes.existing_liquid_savings || 0));
-        setFormInvestments(String(profRes.existing_investments || 0));
-        setFormDebtObligations(String(profRes.monthly_debt_obligations || 0));
-        setFormDependents(String(profRes.dependents || 0));
-        setFormHealthInsurance(Boolean(profRes.has_health_insurance));
-        setFormLifeInsurance(Boolean(profRes.has_life_insurance));
-        setFormTargetMonths(String(profRes.emergency_fund_target_months || 6));
-        setFormTargetAge(profRes.target_retirement_age ? String(profRes.target_retirement_age) : '55');
-        setFormDesiredIncome(String(profRes.desired_monthly_lifestyle_income || 0));
-        setSimEmergencyMonths(profRes.emergency_fund_target_months || 6);
-      }
-
-      setGoals(goalsRes || []);
-      setActionHistory(actHistoryRes || []);
-
-      // Freedom Calculator status
-      try {
-        const freedomRes = await freedomApi.getStatus();
-        setFreedomData(freedomRes);
-      } catch {
-        // Freedom unconfigured
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load allocation data');
-    } finally {
-      setLoading(false);
-    }
   }
 
   async function loadOrGenerateActionPlan(month: string, overrides?: UserActionOverride) {
@@ -172,19 +100,76 @@ export default function PlanPage() {
       }
       const actHistoryRes = await actionApi.getHistory().catch(() => []);
       setActionHistory(actHistoryRes || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to compute action plan');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to compute action plan';
+      setError(msg);
     } finally {
       setPlanLoading(false);
     }
   }
 
   useEffect(() => {
-    loadInitialData();
+    let ignore = false;
+    Promise.all([
+      allocationApi.getProfile().catch(() => null),
+      allocationApi.listGoals().catch(() => []),
+      actionApi.getHistory().catch(() => []),
+    ])
+      .then(([profRes, goalsRes, actHistoryRes]) => {
+        if (!ignore) {
+          if (profRes?.emergency_fund_target_months) {
+            setSimEmergencyMonths(profRes.emergency_fund_target_months);
+          }
+          setGoals(goalsRes || []);
+          setActionHistory(actHistoryRes || []);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          const msg = err instanceof Error ? err.message : 'Failed to load allocation data';
+          setError(msg);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   useEffect(() => {
-    loadOrGenerateActionPlan(currentMonth);
+    let ignore = false;
+    actionApi.generatePlan(currentMonth)
+      .then((plan) => {
+        if (!ignore) {
+          setActionPlan(plan);
+          if (plan.user_overrides?.custom_emergency_allocation !== undefined) {
+            setOverrideEmergency(String(plan.user_overrides.custom_emergency_allocation));
+          }
+          if (plan.user_overrides?.custom_buffer_amount !== undefined) {
+            setOverrideBuffer(String(plan.user_overrides.custom_buffer_amount));
+          }
+          if (plan.user_overrides?.prioritized_goal_id) {
+            setOverridePrioritizedGoal(plan.user_overrides.prioritized_goal_id);
+          }
+          if (plan.user_overrides?.paused_goal_ids) {
+            setPausedGoals(plan.user_overrides.paused_goal_ids);
+          }
+          setPlanLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          const msg = err instanceof Error ? err.message : 'Failed to compute action plan';
+          setError(msg);
+          setPlanLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
   }, [currentMonth]);
 
   async function handleApplyOverrides() {
@@ -228,8 +213,9 @@ export default function PlanPage() {
       setActionHistory(actHistoryRes || []);
       setNotificationMsg(`Action plan for ${currentMonth} locked into historical records.`);
       setTimeout(() => setNotificationMsg(null), 4000);
-    } catch (err: any) {
-      alert(`Confirm plan failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to confirm plan';
+      alert(`Confirm plan failed: ${msg}`);
     } finally {
       setConfirmLoading(false);
     }
@@ -246,36 +232,11 @@ export default function PlanPage() {
         overrides: actionPlan?.user_overrides,
       });
       setSimulatedPlan(sim);
-    } catch (err: any) {
-      alert(`What-if simulation error: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'What-if simulation error';
+      alert(`What-if simulation error: ${msg}`);
     } finally {
       setIsSimulating(false);
-    }
-  }
-
-  async function handleSaveProfile(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      const payload: Partial<FinancialProfile> = {
-        age: parseInt(formAge, 10) || undefined,
-        monthly_essential_expenses: parseFloat(formEssentialExpenses) || 0,
-        existing_liquid_savings: parseFloat(formLiquidSavings) || 0,
-        existing_investments: parseFloat(formInvestments) || 0,
-        monthly_debt_obligations: parseFloat(formDebtObligations) || 0,
-        dependents: parseInt(formDependents, 10) || 0,
-        has_health_insurance: formHealthInsurance,
-        has_life_insurance: formLifeInsurance,
-        emergency_fund_target_months: parseInt(formTargetMonths, 10) || 6,
-        target_retirement_age: parseInt(formTargetAge, 10) || undefined,
-        desired_monthly_lifestyle_income: parseFloat(formDesiredIncome) || 0,
-      };
-
-      const updated = await allocationApi.saveProfile(payload);
-      setProfile(updated);
-      setIsEditingProfile(false);
-      await loadOrGenerateActionPlan(currentMonth);
-    } catch (err: any) {
-      alert(`Save profile failed: ${err.message}`);
     }
   }
 
@@ -300,8 +261,9 @@ export default function PlanPage() {
       const goalsRes = await allocationApi.listGoals();
       setGoals(goalsRes || []);
       await loadOrGenerateActionPlan(currentMonth);
-    } catch (err: any) {
-      alert(`Create goal failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Create goal failed';
+      alert(`Create goal failed: ${msg}`);
     }
   }
 
@@ -383,6 +345,19 @@ export default function PlanPage() {
         <div style={{ padding: '14px 18px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid var(--signal-alert)', color: 'var(--signal-alert)', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
           <AlertCircle size={16} />
           <span>{error}</span>
+        </div>
+      )}
+      {loading && !actionPlan && (
+        <div style={{
+          padding: '40px',
+          textAlign: 'center',
+          background: 'var(--canvas-surface)',
+          border: '1px solid var(--border-hairline)',
+          color: 'var(--ink-secondary)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '12px'
+        }}>
+          COMPUTING FINANCIAL ACTION ENGINE MATRICES...
         </div>
       )}
 
@@ -898,7 +873,7 @@ export default function PlanPage() {
                 <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Goal Category</label>
                 <select
                   value={goalType}
-                  onChange={(e: any) => setGoalType(e.target.value)}
+                  onChange={(e) => setGoalType(e.target.value as FinancialGoal['goal_type'])}
                   style={{ width: '100%', padding: '8px', background: 'var(--canvas-inset)', border: '1px solid var(--border-hairline)', outline: 'none' }}
                 >
                   <option value="savings">Savings Milestone</option>

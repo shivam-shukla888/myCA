@@ -14,12 +14,10 @@ import {
   TrendingUp,
   TrendingDown,
   ArrowRightLeft,
-  Calendar,
   Edit2,
   Trash2,
   PieChart,
   AlertCircle,
-  CheckCircle2,
   X,
   Wallet,
 } from 'lucide-react';
@@ -104,15 +102,45 @@ export default function LedgerPage() {
 
       setSummary(summaryRes);
       setTransactions(listRes.transactions || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load month data');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load month data';
+      setError(message);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadMonthData(currentMonth);
+    let ignore = false;
+    const [yearStr, monthNumStr] = currentMonth.split('-');
+    const year = parseInt(yearStr, 10);
+    const monthNum = parseInt(monthNumStr, 10);
+    const lastDay = new Date(Date.UTC(year, monthNum, 0)).getUTCDate();
+    const startDate = `${currentMonth}-01`;
+    const endDate = `${currentMonth}-${String(lastDay).padStart(2, '0')}`;
+
+    Promise.all([
+      transactionApi.getMonthlySummary(currentMonth),
+      transactionApi.list({ start_date: startDate, end_date: endDate, limit: 100 }),
+    ])
+      .then(([summaryRes, listRes]) => {
+        if (!ignore) {
+          setSummary(summaryRes);
+          setTransactions(listRes.transactions || []);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          const message = err instanceof Error ? err.message : 'Failed to load month data';
+          setError(message);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
   }, [currentMonth]);
 
   function handleOpenCreate(defaultType: TransactionType = 'expense') {
@@ -188,8 +216,9 @@ export default function LedgerPage() {
       } else {
         await loadMonthData(currentMonth);
       }
-    } catch (err: any) {
-      alert(`Save failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
+      alert(`Save failed: ${msg}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -202,8 +231,9 @@ export default function LedgerPage() {
     try {
       await transactionApi.delete(id);
       await loadMonthData(currentMonth);
-    } catch (err: any) {
-      alert(`Delete failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
+      alert(`Delete failed: ${msg}`);
     }
   }
 
@@ -628,7 +658,6 @@ export default function LedgerPage() {
           transactions.map((tx, idx) => {
             const isIncome = tx.type === 'income' || tx.type === 'credit';
             const isTransfer = tx.type === 'transfer';
-            const isExpense = tx.type === 'expense' || tx.type === 'debit';
 
             return (
               <div
@@ -989,5 +1018,6 @@ export default function LedgerPage() {
         </div>
       )}
     </div>
-  </AuthGuard> );
+  </AuthGuard>
+  );
 }

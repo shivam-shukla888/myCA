@@ -238,8 +238,11 @@ export class AIService {
         content: aiAnswer,
         created_at: new Date().toISOString(),
       });
-    } catch (e) {
-      // Non-fatal if database tables are in fallback mode
+    } catch (e: any) {
+      // PRODUCTION HARDENING: Log persistence failures instead of silently swallowing them.
+      // Conversation persistence is non-fatal (AI response still returned), but silent
+      // data loss in production must be visible in logs.
+      console.error(`[AI_SERVICE] Conversation persistence failed for user=${userId} conversation=${conversationId}: ${e.message || e}`);
     }
   }
 }

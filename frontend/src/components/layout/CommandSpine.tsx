@@ -18,7 +18,7 @@ export const MODES = [
 
 export function CommandSpine() {
   const pathname = usePathname();
-  const { user, logout, setUserDirectly, token } = useAuth();
+  const { user, logout, setUserDirectly } = useAuth();
 
   const toggleAdminRole = () => {
     if (process.env.NODE_ENV !== 'development' || !user) return;

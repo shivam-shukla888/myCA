@@ -230,12 +230,12 @@ export class TransactionService {
     } catch (err) {
       if (err instanceof AppError) throw err;
       if (isProduction) {
-        throw new AppError('Transaction query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+        throw new AppError('Transaction query failed in database', 500, 'DATABASE_QUERY_FAILED');
       }
     }
 
     if (isProduction) {
-      throw new AppError('Transaction query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+      throw new AppError('Transaction query failed in database', 500, 'DATABASE_QUERY_FAILED');
     }
 
     // Filter in-memory by user_id (development/test mode only)
@@ -430,12 +430,12 @@ export class TransactionService {
     } catch (err) {
       if (err instanceof AppError) throw err;
       if (isProduction) {
-        throw new AppError('Monthly summary query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+        throw new AppError('Monthly summary query failed in database', 500, 'DATABASE_QUERY_FAILED');
       }
     }
 
     if (isProduction) {
-      throw new AppError('Monthly summary query failed in production database', 500, 'DATABASE_QUERY_FAILED');
+      throw new AppError('Monthly summary query failed in database', 500, 'DATABASE_QUERY_FAILED');
     }
 
     // In-memory filter for dev/test mode

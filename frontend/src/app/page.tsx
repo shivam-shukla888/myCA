@@ -21,15 +21,37 @@ export default function SurfacePage() {
       ]);
       setTransactions(txRes.transactions || []);
       setDocuments(docRes.documents || []);
-    } catch (err: any) {
-      setError(err.message || 'Unable to connect to backend service.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unable to connect to backend service.';
+      setError(msg);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadData();
+    let ignore = false;
+    Promise.all([
+      transactionApi.list({ limit: 20 }),
+      documentApi.list({ limit: 10 }),
+    ])
+      .then(([txRes, docRes]) => {
+        if (!ignore) {
+          setTransactions(txRes.transactions || []);
+          setDocuments(docRes.documents || []);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          const msg = err instanceof Error ? err.message : 'Unable to connect to backend service.';
+          setError(msg);
+          setLoading(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   // Compute live deterministic totals
@@ -102,7 +124,21 @@ export default function SurfacePage() {
       )}
 
       {/* Primary Financial State (Where am I?) */}
-      {!error && (
+      {loading && !error && (
+        <div style={{
+          border: '1px solid var(--border-hairline)',
+          background: 'var(--canvas-surface)',
+          padding: '32px',
+          textAlign: 'center',
+          color: 'var(--ink-secondary)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '12px'
+        }}>
+          Reconciling financial state from ledger and documents...
+        </div>
+      )}
+
+      {!loading && !error && (
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',

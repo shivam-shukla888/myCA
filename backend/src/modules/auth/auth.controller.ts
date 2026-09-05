@@ -57,14 +57,44 @@ export class AuthController {
     }
   }
 
+  async refresh(req: Request, res: Response, next: NextFunction) {
+    try {
+      const refreshToken = req.body?.refresh_token;
+      if (!refreshToken) {
+        return next(new AppError('Refresh token required in request body', 400, 'AUTH_MISSING_REFRESH_TOKEN'));
+      }
+      const result = await authService.refreshToken(refreshToken);
+      res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async me(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.id;
       if (!userId) {
         return next(new AppError('Unauthorized', 401, 'UNAUTHORIZED'));
       }
-      const profile = await authService.getProfile(userId);
-      res.status(200).json({ data: profile });
+      try {
+        const profile = await authService.getProfile(userId);
+        res.status(200).json({ data: { ...profile, email: req.user?.email || (profile as any).email } });
+      } catch (err: any) {
+        if (err.code === 'PROFILE_NOT_FOUND' || err.code === 'PROFILE_NOT_FOUND_FAIL_CLOSED') {
+          // PRODUCTION HARDENING: Identity verified via Supabase Auth,
+          // but public.profiles record not yet created (pending onboarding).
+          // Return a clearly-flagged minimal response — NOT a fabricated profile.
+          return res.status(200).json({
+            data: {
+              id: userId,
+              email: req.user?.email || '',
+              profile_status: 'pending_onboarding',
+              onboarding_completed: false,
+            },
+          });
+        }
+        throw err;
+      }
     } catch (err) {
       next(err);
     }

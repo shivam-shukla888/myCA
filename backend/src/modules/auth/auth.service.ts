@@ -104,37 +104,90 @@ export class AuthService {
         throw new AppError('Authentication failed: No session returned', 401, 'AUTH_SESSION_FAILED');
       }
 
-      // Fetch user role from profiles
-      let role = 'USER';
+      // Fetch user role from authoritative database record
       try {
         const supabaseAdmin = getSupabaseAdminClient();
-        const { data: profile } = await supabaseAdmin
+        const { data: profile, error: profileErr } = await supabaseAdmin
           .from('profiles')
           .select('role')
           .eq('id', data.user.id)
-          .single();
+          .maybeSingle();
 
-        if (profile?.role) role = profile.role;
-      } catch (e) {
-        role = 'USER';
+        if (profileErr) {
+          throw new AppError(`Authoritative role verification failed: ${profileErr.message}`, 500, 'AUTH_ROLE_VERIFICATION_FAILED');
+        }
+
+        // PRODUCTION HARDENING: Fail closed if profile is missing.
+        // Do NOT silently assign USER role when profile query returns null.
+        if (!profile) {
+          throw new AppError(
+            'User profile not found after login. Profile record required for role verification.',
+            500,
+            'AUTH_PROFILE_MISSING_AFTER_LOGIN'
+          );
+        }
+        const role = profile.role || 'USER';
+
+        return {
+          user: {
+            id: data.user.id,
+            email: data.user.email,
+            role,
+          },
+          session: {
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+            expires_in: data.session.expires_in,
+            token_type: data.session.token_type,
+          },
+        };
+      } catch (e: any) {
+        if (e instanceof AppError) throw e;
+        throw new AppError(`Role lookup failed: ${e.message}`, 500, 'AUTH_ROLE_VERIFICATION_FAILED');
+      }
+    } catch (err: any) {
+      if (err instanceof AppError) throw err;
+      throw new AppError(`Login failed: ${err.message}`, 500, 'AUTH_LOGIN_ERROR');
+    }
+  }
+
+  /**
+   * Refresh session token via Supabase Auth.
+   */
+  async refreshToken(refreshToken: string) {
+    if (!refreshToken) {
+      throw new AppError('Refresh token is required', 400, 'AUTH_MISSING_REFRESH_TOKEN');
+    }
+
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase.auth.refreshSession({
+        refresh_token: refreshToken,
+      });
+
+      if (error || !data.session || !data.user) {
+        throw new AppError(
+          `Token refresh failed: ${error?.message || 'Invalid or expired refresh token'}`,
+          401,
+          'AUTH_REFRESH_TOKEN_EXPIRED'
+        );
       }
 
       return {
-        user: {
-          id: data.user.id,
-          email: data.user.email,
-          role,
-        },
         session: {
           access_token: data.session.access_token,
           refresh_token: data.session.refresh_token,
           expires_in: data.session.expires_in,
           token_type: data.session.token_type,
         },
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+        },
       };
     } catch (err: any) {
       if (err instanceof AppError) throw err;
-      throw new AppError(`Login failed: ${err.message}`, 500, 'AUTH_LOGIN_ERROR');
+      throw new AppError(`Token refresh failed: ${err.message}`, 500, 'AUTH_REFRESH_ERROR');
     }
   }
 
@@ -144,10 +197,8 @@ export class AuthService {
   async sendMagicLink(input: MagicLinkInput) {
     let redirectTo = env.ALLOWED_REDIRECT_URLS[0];
 
-    // Validate redirect URL against parsed origin allowlist to eliminate open redirect bypasses
     if (input.redirect_to) {
       const isAllowed = isRedirectUrlAllowed(input.redirect_to, env.ALLOWED_REDIRECT_URLS);
-
       if (!isAllowed) {
         throw new AppError(
           `Redirect URL not permitted. Must match allowed origins: ${env.ALLOWED_REDIRECT_URLS.join(', ')}`,
@@ -184,34 +235,34 @@ export class AuthService {
 
   /**
    * Retrieve current user profile and role.
+   * STRICT FAIL-CLOSED GUARANTEE: Never returns fake, fallback, or default profiles.
    */
   async getProfile(userId: string) {
+    if (!userId) {
+      throw new AppError('User ID is required', 400, 'INVALID_USER_ID');
+    }
+
     try {
       const supabaseAdmin = getSupabaseAdminClient();
       const { data, error } = await supabaseAdmin
         .from('profiles')
         .select('id, full_name, phone, business_type, preferred_language, financial_year_start, role, onboarding_completed, created_at')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      if (!error && data) {
-        return data;
+      if (error) {
+        throw new AppError(`Database profile retrieval failed: ${error.message}`, 500, 'DATABASE_PROFILE_ERROR');
       }
-    } catch (err) {
-      // Fallback
-    }
 
-    // Default fallback profile for authenticated user
-    return {
-      id: userId,
-      full_name: 'Test Step4 User',
-      role: 'USER',
-      business_type: 'individual',
-      preferred_language: 'en',
-      financial_year_start: 4,
-      onboarding_completed: false,
-      created_at: new Date().toISOString(),
-    };
+      if (!data) {
+        throw new AppError('User profile not found in database', 404, 'PROFILE_NOT_FOUND');
+      }
+
+      return data;
+    } catch (err: any) {
+      if (err instanceof AppError) throw err;
+      throw new AppError(`Profile retrieval failed: ${err.message}`, 500, 'DATABASE_PROFILE_ERROR');
+    }
   }
 }
 
