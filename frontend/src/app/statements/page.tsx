@@ -1,15 +1,19 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import { reportApi, TaxReportResponse } from '../../lib/api';
 import { Printer, ShieldAlert } from 'lucide-react';
 
 export default function StatementsPage() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [report, setReport] = useState<TaxReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function fetchReport() {
+    if (!isAuthenticated) return;
     setLoading(true);
     setError(null);
     try {
@@ -24,7 +28,12 @@ export default function StatementsPage() {
   }
 
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     let ignore = false;
+    setLoading(true);
+    setError(null);
+
     reportApi.generate('tax_summary', '2025-26')
       .then((res) => {
         if (!ignore) {
@@ -42,7 +51,7 @@ export default function StatementsPage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -60,50 +69,79 @@ export default function StatementsPage() {
           </p>
         </div>
 
-        <button onClick={() => window.print()} className="instrument-btn" disabled={Boolean(error)}>
-          <Printer size={14} />
-          Print Fiscal Statement
-        </button>
+        {isAuthenticated && (
+          <button onClick={() => window.print()} className="instrument-btn" disabled={Boolean(error)}>
+            <Printer size={14} />
+            Print Fiscal Statement
+          </button>
+        )}
       </div>
 
       <hr className="hairline-rule" style={{ margin: 0 }} />
 
-      {error && (
+      {/* Authentication Initializing State */}
+      {authLoading && (
         <div style={{
-          padding: '24px 28px',
+          border: '1px solid var(--border-hairline)',
           background: 'var(--canvas-surface)',
-          border: '1px solid var(--signal-alert)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '16px',
-          maxWidth: '900px',
-          margin: '0 auto',
-          width: '100%'
+          padding: '32px',
+          textAlign: 'center',
+          color: 'var(--ink-secondary)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '12px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <ShieldAlert size={20} style={{ color: 'var(--signal-alert)', flexShrink: 0 }} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink-primary)' }}>
-                Unable to generate statutory fiscal statement
-              </div>
-              <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '2px' }}>
-                {error}
-              </div>
-            </div>
-          </div>
-          <button onClick={() => fetchReport()} className="instrument-btn" style={{ flexShrink: 0 }}>
-            Retry
-          </button>
+          Reconciling workspace authentication state...
         </div>
       )}
 
-      {/* Editorial Fiscal Statement Canvas */}
-      {loading && !error && (
-        <div style={{
-          background: 'var(--canvas-surface)',
-          border: '1px solid var(--border-hairline)',
-          padding: '48px',
+      {/* Unauthenticated Guest State — Zero Protected API Requests */}
+      {!authLoading && !isAuthenticated && (
+        <AuthRequiredState
+          modeTag="STATEMENTS • FISCAL DOSSIER"
+          title="Sign In to Access Statutory Fiscal Statement & Tax Summary"
+          description="Formal tax deductions, taxable income assessments, and Chapter VI-A filings are generated strictly from verified personal ledger records. Sign in to your verified workspace to view or print statements."
+        />
+      )}
+
+      {/* Authenticated Statements Content */}
+      {!authLoading && isAuthenticated && (
+        <>
+          {error && (
+            <div style={{
+              padding: '24px 28px',
+              background: 'var(--canvas-surface)',
+              border: '1px solid var(--signal-alert)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '16px',
+              maxWidth: '900px',
+              margin: '0 auto',
+              width: '100%'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <ShieldAlert size={20} style={{ color: 'var(--signal-alert)', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink-primary)' }}>
+                    Unable to generate statutory fiscal statement
+                  </div>
+                  <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '2px' }}>
+                    {error}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => fetchReport()} className="instrument-btn" style={{ flexShrink: 0 }}>
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Editorial Fiscal Statement Canvas */}
+          {loading && !error && (
+            <div style={{
+              background: 'var(--canvas-surface)',
+              border: '1px solid var(--border-hairline)',
+              padding: '48px',
           maxWidth: '900px',
           margin: '0 auto',
           width: '100%',
@@ -226,6 +264,8 @@ export default function StatementsPage() {
           </div>
         </div>
       </div>
+      )}
+      </>
       )}
     </div>
   );

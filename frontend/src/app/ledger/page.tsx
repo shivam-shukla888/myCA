@@ -22,6 +22,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import AuthGuard from '../../components/layout/AuthGuard';
+import { useAuth } from '../../context/AuthContext';
 
 const CATEGORY_PRESETS: Record<'income' | 'expense' | 'transfer', string[]> = {
   income: ['Salary', 'Freelance / Consulting', 'Business Revenue', 'Dividend / Interest', 'Rental Income', 'Other Income'],
@@ -38,10 +39,11 @@ const CATEGORY_PRESETS: Record<'income' | 'expense' | 'transfer', string[]> = {
     'Medical Expenditure',
     'General Expense',
   ],
-  transfer: ['Savings Account Transfer', 'Credit Card Payment', 'Investment Inflow', 'Emergency Fund Transfer', 'Wallet Top-up'],
+  transfer: ['Savings Allocation', 'Emergency Fund Transfer', 'Investment Transfer', 'Account Transfer'],
 };
 
 export default function LedgerPage() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   // Current month state in YYYY-MM format
   const [currentMonth, setCurrentMonth] = useState<string>(() => {
     const now = new Date();
@@ -85,6 +87,7 @@ export default function LedgerPage() {
   }
 
   async function loadMonthData(monthStr: string) {
+    if (!isAuthenticated) return;
     setLoading(true);
     setError(null);
     try {
@@ -111,7 +114,12 @@ export default function LedgerPage() {
   }
 
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     let ignore = false;
+    setLoading(true);
+    setError(null);
+
     const [yearStr, monthNumStr] = currentMonth.split('-');
     const year = parseInt(yearStr, 10);
     const monthNum = parseInt(monthNumStr, 10);
@@ -141,7 +149,7 @@ export default function LedgerPage() {
     return () => {
       ignore = true;
     };
-  }, [currentMonth]);
+  }, [currentMonth, authLoading, isAuthenticated]);
 
   function handleOpenCreate(defaultType: TransactionType = 'expense') {
     setEditingTxId(null);

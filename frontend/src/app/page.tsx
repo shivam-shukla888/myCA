@@ -2,16 +2,20 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useAuth } from '../context/AuthContext';
+import { AuthRequiredState } from '../components/auth/AuthRequiredState';
 import { transactionApi, documentApi, Transaction, DocumentItem } from '../lib/api';
 import { ArrowUpRight, ArrowDownRight, Compass, Calendar, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 
 export default function SurfacePage() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function loadData() {
+    if (!isAuthenticated) return;
     setLoading(true);
     setError(null);
     try {
@@ -30,7 +34,12 @@ export default function SurfacePage() {
   }
 
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     let ignore = false;
+    setLoading(true);
+    setError(null);
+
     Promise.all([
       transactionApi.list({ limit: 20 }),
       documentApi.list({ limit: 10 }),
@@ -52,7 +61,7 @@ export default function SurfacePage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   // Compute live deterministic totals
   let totalCredit = 0;
@@ -95,36 +104,8 @@ export default function SurfacePage() {
 
       <hr className="hairline-rule" style={{ margin: 0 }} />
 
-      {/* Truthful Error State Banner with Retry */}
-      {error && (
-        <div style={{
-          padding: '24px 28px',
-          background: 'var(--canvas-surface)',
-          border: '1px solid var(--signal-alert)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '16px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <AlertCircle size={20} style={{ color: 'var(--signal-alert)', flexShrink: 0 }} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink-primary)' }}>
-                Unable to load financial state
-              </div>
-              <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '2px' }}>
-                {error}
-              </div>
-            </div>
-          </div>
-          <button onClick={() => loadData()} className="instrument-btn" style={{ flexShrink: 0 }}>
-            Retry Connection
-          </button>
-        </div>
-      )}
-
-      {/* Primary Financial State (Where am I?) */}
-      {loading && !error && (
+      {/* Authentication Initializing State */}
+      {authLoading && (
         <div style={{
           border: '1px solid var(--border-hairline)',
           background: 'var(--canvas-surface)',
@@ -134,9 +115,64 @@ export default function SurfacePage() {
           fontFamily: 'var(--font-mono)',
           fontSize: '12px'
         }}>
-          Reconciling financial state from ledger and documents...
+          Reconciling workspace authentication state...
         </div>
       )}
+
+      {/* Unauthenticated Guest State — Zero Protected API Requests */}
+      {!authLoading && !isAuthenticated && (
+        <AuthRequiredState
+          modeTag="STATE ASSESSMENT • SURFACE"
+          title="Sign In to Access Financial Terrain & Position"
+          description="Your authoritative financial state, tax deductions, and verified evidence base are private and isolated. Sign in with your verified credentials to enter your workspace."
+        />
+      )}
+
+      {/* Authenticated Financial State */}
+      {!authLoading && isAuthenticated && (
+        <>
+          {/* Truthful Error State Banner with Retry */}
+          {error && (
+            <div style={{
+              padding: '24px 28px',
+              background: 'var(--canvas-surface)',
+              border: '1px solid var(--signal-alert)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '16px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <AlertCircle size={20} style={{ color: 'var(--signal-alert)', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink-primary)' }}>
+                    Unable to load financial state
+                  </div>
+                  <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '2px' }}>
+                    {error}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => loadData()} className="instrument-btn" style={{ flexShrink: 0 }}>
+                Retry Connection
+              </button>
+            </div>
+          )}
+
+          {/* Primary Financial State Loading */}
+          {loading && !error && (
+            <div style={{
+              border: '1px solid var(--border-hairline)',
+              background: 'var(--canvas-surface)',
+              padding: '32px',
+              textAlign: 'center',
+              color: 'var(--ink-secondary)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '12px'
+            }}>
+              Reconciling financial state from ledger and documents...
+            </div>
+          )}
 
       {!loading && !error && (
       <div style={{
@@ -335,6 +371,8 @@ export default function SurfacePage() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

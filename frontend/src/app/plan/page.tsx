@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import {
   allocationApi,
   actionApi,
@@ -27,6 +29,7 @@ import {
 } from 'lucide-react';
 
 export default function PlanPage() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [currentMonth, setCurrentMonth] = useState<string>(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -81,6 +84,7 @@ export default function PlanPage() {
   }
 
   async function loadOrGenerateActionPlan(month: string, overrides?: UserActionOverride) {
+    if (!isAuthenticated) return;
     setPlanLoading(true);
     setError(null);
     try {
@@ -109,7 +113,12 @@ export default function PlanPage() {
   }
 
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     let ignore = false;
+    setLoading(true);
+    setError(null);
+
     Promise.all([
       allocationApi.getProfile().catch(() => null),
       allocationApi.listGoals().catch(() => []),
@@ -136,10 +145,13 @@ export default function PlanPage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     let ignore = false;
+    setPlanLoading(true);
     actionApi.generatePlan(currentMonth)
       .then((plan) => {
         if (!ignore) {
@@ -170,7 +182,7 @@ export default function PlanPage() {
     return () => {
       ignore = true;
     };
-  }, [currentMonth]);
+  }, [currentMonth, authLoading, isAuthenticated]);
 
   async function handleApplyOverrides() {
     const overrides: UserActionOverride = {};
@@ -301,39 +313,70 @@ export default function PlanPage() {
             </button>
           </div>
 
-          <button
-            onClick={() => loadOrGenerateActionPlan(currentMonth)}
-            disabled={planLoading}
-            className="instrument-btn"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px' }}
-            title="Recalculate plan from deterministic services"
-          >
-            <RefreshCw size={14} className={planLoading ? 'spin' : ''} />
-            <span>Recalculate</span>
-          </button>
+          {isAuthenticated && (
+            <>
+              <button
+                onClick={() => loadOrGenerateActionPlan(currentMonth)}
+                disabled={planLoading}
+                className="instrument-btn"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px' }}
+                title="Recalculate plan from deterministic services"
+              >
+                <RefreshCw size={14} className={planLoading ? 'spin' : ''} />
+                <span>Recalculate</span>
+              </button>
 
-          <button
-            onClick={handleConfirmPlan}
-            disabled={confirmLoading || Boolean(actionPlan?.confirmed_at)}
-            className="instrument-btn"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '9px 14px',
-              background: actionPlan?.confirmed_at ? 'rgba(34, 197, 94, 0.15)' : 'var(--signal-forest)',
-              color: '#fff',
-              border: 'none',
-              cursor: actionPlan?.confirmed_at ? 'default' : 'pointer'
-            }}
-            title={actionPlan?.confirmed_at ? 'Plan locked in historical archive' : 'Confirm and lock this monthly plan'}
-          >
-            <Lock size={14} />
-            <span>{actionPlan?.confirmed_at ? 'Plan Locked' : 'Confirm Plan'}</span>
-          </button>
+              <button
+                onClick={handleConfirmPlan}
+                disabled={confirmLoading || Boolean(actionPlan?.confirmed_at)}
+                className="instrument-btn"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '9px 14px',
+                  background: actionPlan?.confirmed_at ? 'rgba(34, 197, 94, 0.15)' : 'var(--signal-forest)',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: actionPlan?.confirmed_at ? 'default' : 'pointer'
+                }}
+                title={actionPlan?.confirmed_at ? 'Plan locked in historical archive' : 'Confirm and lock this monthly plan'}
+              >
+                <Lock size={14} />
+                <span>{actionPlan?.confirmed_at ? 'Plan Locked' : 'Confirm Plan'}</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
+      {/* Authentication Initializing State */}
+      {authLoading && (
+        <div style={{
+          border: '1px solid var(--border-hairline)',
+          background: 'var(--canvas-surface)',
+          padding: '32px',
+          textAlign: 'center',
+          color: 'var(--ink-secondary)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '12px'
+        }}>
+          Reconciling workspace authentication state...
+        </div>
+      )}
+
+      {/* Unauthenticated Guest State — Zero Protected API Requests */}
+      {!authLoading && !isAuthenticated && (
+        <AuthRequiredState
+          modeTag="PHASE 6 • FINANCIAL ACTION ENGINE"
+          title="Sign In to Access Surplus Allocation & Freedom Roadmap"
+          description="Priority-driven surplus allocations, debt liquidation ladders, and financial freedom scenarios require your isolated financial profile. Sign in to your verified workspace to view or simulate plans."
+        />
+      )}
+
+      {/* Authenticated Plan Content */}
+      {!authLoading && isAuthenticated && (
+        <>
       {notificationMsg && (
         <div style={{ padding: '12px 18px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid var(--signal-forest)', color: 'var(--signal-forest)', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
           <CheckCircle2 size={16} />
@@ -895,6 +938,8 @@ export default function PlanPage() {
             </form>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import { documentApi, ocrApi, DocumentItem, ExtractionResult } from '../../lib/api';
 import {
   Upload,
@@ -37,6 +39,7 @@ interface DocumentReviewData {
 }
 
 export default function VaultPage() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
@@ -57,6 +60,7 @@ export default function VaultPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function loadDocuments() {
+    if (!isAuthenticated) return;
     setLoading(true);
     setError(null);
     try {
@@ -71,7 +75,12 @@ export default function VaultPage() {
   }
 
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     let ignore = false;
+    setLoading(true);
+    setError(null);
+
     documentApi.list({ limit: 50 })
       .then((res) => {
         if (!ignore) {
@@ -89,7 +98,7 @@ export default function VaultPage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
@@ -182,13 +191,43 @@ export default function VaultPage() {
           </p>
         </div>
 
-        <button onClick={() => setShowUpload(!showUpload)} className="instrument-btn">
-          <Upload size={14} />
-          {showUpload ? 'Close Upload Desk' : 'Deposit Evidence Node'}
-        </button>
+        {isAuthenticated && (
+          <button onClick={() => setShowUpload(!showUpload)} className="instrument-btn">
+            <Upload size={14} />
+            {showUpload ? 'Close Upload Desk' : 'Deposit Evidence Node'}
+          </button>
+        )}
       </div>
 
       <hr className="hairline-rule" style={{ margin: 0 }} />
+
+      {/* Authentication Initializing State */}
+      {authLoading && (
+        <div style={{
+          border: '1px solid var(--border-hairline)',
+          background: 'var(--canvas-surface)',
+          padding: '32px',
+          textAlign: 'center',
+          color: 'var(--ink-secondary)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '12px'
+        }}>
+          Reconciling workspace authentication state...
+        </div>
+      )}
+
+      {/* Unauthenticated Guest State — Zero Protected API Requests */}
+      {!authLoading && !isAuthenticated && (
+        <AuthRequiredState
+          modeTag="EVIDENCE VAULT • FY 2025–26"
+          title="Sign In to Access Document Evidence Archive & OCR"
+          description="Stored payslips, bank statements, and tax deduction certificates are private and encrypted. Sign in to your verified workspace to upload and review documents."
+        />
+      )}
+
+      {/* Authenticated Vault Content */}
+      {!authLoading && isAuthenticated && (
+        <>
 
       {/* Upload Desk */}
       {showUpload && (
@@ -709,9 +748,11 @@ export default function VaultPage() {
                   </div>
                 )}
               </div>
-            )}
-          </div>
+          )}
         </div>
+      </div>
+      )}
+      </>
       )}
     </div>
   );
