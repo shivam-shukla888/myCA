@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authApi, setAuthToken, getAuthToken } from '../lib/api';
+import { authApi } from '../lib/api';
 
 export interface UserProfile {
   id: string;
@@ -19,8 +19,8 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, pass: string) => Promise<void>;
   signup: (email: string, pass: string, fullName: string) => Promise<{ requiresEmailVerification: boolean; message: string }>;
-  logout: () => void;
-  setUserDirectly: (user: UserProfile, token: string) => void;
+  logout: () => Promise<void>;
+  setUserDirectly: (user: UserProfile, token?: string) => void;
   refreshProfile: () => Promise<void>;
 }
 
@@ -28,7 +28,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshProfile = async () => {
@@ -49,16 +48,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function initAuth() {
-      const storedToken = getAuthToken();
-
-      if (!storedToken) {
-        setToken(null);
-        setUser(null);
-        setIsLoading(false);
-        return;
-      }
-
-      setToken(storedToken);
       try {
         const profile = await authApi.getMe();
         setUser({
@@ -70,59 +59,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           onboarding_completed: profile.onboarding_completed,
         });
       } catch (e: unknown) {
-        console.warn('[AuthContext] Failed to restore auth session:', e);
-        // Token is invalid or expired, clear session
-        setAuthToken(null);
-        setToken(null);
+        console.warn('[AuthContext] No active session or failed to fetch profile:', e);
         setUser(null);
       } finally {
         setIsLoading(false);
       }
     }
-
     initAuth();
   }, []);
-
-  // Multi-tab session synchronization
-  useEffect(() => {
-    function handleStorageChange(e: StorageEvent) {
-      if (e.key === 'personal_ca_auth_token') {
-        if (!e.newValue) {
-          setUser(null);
-          setToken(null);
-        } else if (e.newValue !== token) {
-          setToken(e.newValue);
-          authApi.getMe().then((p) => {
-            setUser({
-              id: p.id,
-              email: (p as Record<string, unknown>).email as string || '',
-              role: p.role,
-              full_name: p.full_name,
-              business_type: p.business_type,
-              onboarding_completed: p.onboarding_completed,
-            });
-          }).catch(() => {
-            setUser(null);
-            setToken(null);
-          });
-        }
-      }
-    }
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [token]);
 
   const login = async (email: string, pass: string) => {
     setIsLoading(true);
     try {
       const res = await authApi.login({ email, password: pass });
-      const accessToken = res.session.access_token;
-      const refreshToken = res.session.refresh_token;
-      setAuthToken(accessToken);
-      if (typeof window !== 'undefined' && refreshToken) {
-        localStorage.setItem('personal_ca_refresh_token', refreshToken);
-      }
-      setToken(accessToken);
       setUser({
         id: res.user.id,
         email: res.user.email,
@@ -143,13 +92,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (res.session?.access_token) {
-        const accessToken = res.session.access_token;
-        const refreshToken = res.session.refresh_token;
-        setAuthToken(accessToken);
-        if (typeof window !== 'undefined' && refreshToken) {
-          localStorage.setItem('personal_ca_refresh_token', refreshToken);
-        }
-        setToken(accessToken);
         setUser({
           id: res.user.id,
           email: res.user.email,
@@ -175,29 +117,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    // Call backend logout endpoint to clear httpOnly session cookie
+    // Call backend logout endpoint to clear HttpOnly session cookies
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      await fetch(`${baseUrl ? `${baseUrl}` : ''}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
+      await authApi.logout();
     } catch (e) {
-      console.warn('Logout backend call failed:', e);
+      console.warn('[AuthContext] Logout backend call failed:', e);
     }
-    // Clear client-side tokens
-    setAuthToken(null);
-    setToken(null);
     setUser(null);
   };
 
-  const setUserDirectly = (newUser: UserProfile, newToken: string) => {
-    if (process.env.NODE_ENV !== 'development' && newToken.startsWith('mock-test-token:')) {
-      console.warn('[Auth] Mock tokens are strictly rejected in production');
-      return;
-    }
-    setAuthToken(newToken);
-    setToken(newToken);
+  const setUserDirectly = (newUser: UserProfile, _newToken?: string) => {
     setUser(newUser);
   };
 
@@ -205,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        token,
+        token: null,
         isAuthenticated: Boolean(user),
         isLoading,
         login,

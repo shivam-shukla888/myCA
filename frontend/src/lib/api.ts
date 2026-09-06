@@ -1,19 +1,22 @@
 function getApiUrl(): string {
-  // Use explicit API URL if set
+  // Browser environment: ALWAYS use same-origin relative /api/v1 path to route through Vercel reverse proxy.
+  // This guarantees first-party HttpOnly session cookies and eliminates all cross-site cookie restrictions.
+  if (typeof window !== 'undefined') {
+    return '/api/v1';
+  }
+
+  // Server-side environment: use explicit API URL or fallback to Render backend
+  if (process.env.INTERNAL_API_URL) {
+    return process.env.INTERNAL_API_URL;
+  }
+  if (process.env.BACKEND_API_URL) {
+    return `${process.env.BACKEND_API_URL}/api/v1`;
+  }
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
   }
-
-  // Browser environment: enforce explicit config in production
-  if (typeof window !== 'undefined') {
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    if (!isLocal) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('NEXT_PUBLIC_API_URL must be set in production environment');
-      }
-      // Fallback to Render backend for non‑production remote hosts
-      return 'https://myca-backend.onrender.com/api/v1';
-    }
+  if (process.env.NODE_ENV === 'production') {
+    return 'https://personal-ca-backend.onrender.com/api/v1';
   }
 
   // Default to local development server
@@ -43,85 +46,67 @@ export class ApiError extends Error {
   }
 }
 
+/*
+ * Authentication tokens are now managed via HttpOnly, Secure cookies set by the backend.
+ * These functions are retained for compatibility but always return null because client-side
+ * code cannot access HttpOnly cookies.
+ */
 export function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('personal_ca_auth_token');
+  // No access to HttpOnly cookies from JavaScript.
+  return null;
 }
 
 export function getRefreshToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('personal_ca_refresh_token');
+  // Refresh token is also stored in an HttpOnly cookie.
+  return null;
 }
 
-export function setAuthToken(token: string | null) {
-  if (typeof window === 'undefined') return;
-  if (token) {
-    localStorage.setItem('personal_ca_auth_token', token);
-  } else {
-    localStorage.removeItem('personal_ca_auth_token');
-    localStorage.removeItem('personal_ca_refresh_token');
-  }
+/*
+ * Setting tokens directly in localStorage is no longer supported.
+ * The server will issue HttpOnly cookies upon successful authentication.
+ * This function is kept as a no-op for backward compatibility.
+ */
+export function setAuthToken(_token: string | null) {
+  // Intentionally empty – authentication state is managed via cookies.
 }
 
-export function setAuthSession(accessToken: string | null, refreshToken?: string | null) {
-  if (typeof window === 'undefined') return;
-  if (accessToken) {
-    localStorage.setItem('personal_ca_auth_token', accessToken);
-    if (refreshToken) {
-      localStorage.setItem('personal_ca_refresh_token', refreshToken);
-    }
-  } else {
-    localStorage.removeItem('personal_ca_auth_token');
-    localStorage.removeItem('personal_ca_refresh_token');
-  }
+/*
+ * Session handling now relies on HttpOnly cookies set by the backend.
+ * This function is retained as a no‑op to avoid breaking existing calls.
+ */
+export function setAuthSession(_accessToken: string | null, _refreshToken?: string | null) {
+  // No operation – server-managed cookies handle session state.
 }
 
 let isRefreshing = false;
 
-async function refreshAuthSession(): Promise<string | null> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken || isRefreshing) return null;
+async function refreshAuthSession(): Promise<boolean> {
+  if (isRefreshing) return false;
 
   isRefreshing = true;
   try {
     const res = await fetch(`${API_URL}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      credentials: 'include',
+      body: JSON.stringify({}),
     });
 
-    if (!res.ok) {
-      setAuthSession(null);
-      return null;
-    }
-
-    const json = await res.json();
-    const newAccessToken = json.data?.session?.access_token;
-    const newRefreshToken = json.data?.session?.refresh_token || refreshToken;
-
-    if (newAccessToken) {
-      setAuthSession(newAccessToken, newRefreshToken);
-      return newAccessToken;
-    }
-    return null;
+    return res.ok;
   } catch {
-    setAuthSession(null);
-    return null;
+    return false;
   } finally {
     isRefreshing = false;
   }
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}, isRetry = false): Promise<T> {
-  const token = getAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
+  // Authorization handled via HttpOnly cookies; no Authorization header added.
 
   const url = `${API_URL}${endpoint}`;
   const controller = new AbortController();
@@ -131,6 +116,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}, isRetry =
     const res = await fetch(url, {
       ...options,
       headers,
+      credentials: 'include', // ensure cookies are sent
       signal: controller.signal,
     });
 
@@ -138,10 +124,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}, isRetry =
     const json = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      // If 401 and refresh token available, attempt single retry
-      if (res.status === 401 && !isRetry && getRefreshToken()) {
-        const refreshedToken = await refreshAuthSession();
-        if (refreshedToken) {
+      // If 401 and not already a retry or auth endpoint, attempt token refresh via cookie
+      if (res.status === 401 && !isRetry && endpoint !== '/auth/refresh' && endpoint !== '/auth/login') {
+        const refreshed = await refreshAuthSession();
+        if (refreshed) {
           return request<T>(endpoint, options, true);
         }
       }
@@ -183,6 +169,11 @@ export const authApi = {
     }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
+    });
+  },
+  logout: async () => {
+    return request<{ message: string }>('/auth/logout', {
+      method: 'POST',
     });
   },
   refresh: async (refreshToken: string) => {
@@ -458,6 +449,45 @@ export const chatApi = {
       method: 'POST',
       body: JSON.stringify({ month, conversation_id: conversationId }),
     });
+  },
+};
+
+export interface BehavioralInsight {
+  dimension: string;
+  title: string;
+  status: 'SUFFICIENT_DATA' | 'INSUFFICIENT_EVIDENCE';
+  fact: string;
+  calculation: string;
+  interpretation: string;
+  guidance: string;
+  metric_delta?: number;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+  data_points_analyzed: number;
+  flagged_misleading_correlation: boolean;
+  misleading_reason?: string;
+  guardrails_passed: boolean;
+}
+
+export interface BehavioralAnalysisReport {
+  month: string;
+  overall_status: 'ANALYSIS_COMPLETE' | 'PARTIAL_DATA' | 'INSUFFICIENT_EVIDENCE';
+  dimensions: Record<string, BehavioralInsight>;
+  disclaimer: string;
+  ethical_guardrails: {
+    no_mental_health_diagnosis: boolean;
+    no_shaming: boolean;
+    no_fear_mongering: boolean;
+    no_guilt: boolean;
+    no_manufactured_urgency: boolean;
+  };
+  sufficient_dimensions_count: number;
+  insufficient_dimensions_count: number;
+}
+
+export const behavioralApi = {
+  getInsights: async (month?: string) => {
+    const query = month ? `?month=${encodeURIComponent(month)}` : '';
+    return request<BehavioralAnalysisReport>(`/behavioral/insights${query}`);
   },
 };
 
@@ -790,6 +820,48 @@ export interface ActionFreedomComparison {
   assumption_disclaimer: string;
 }
 
+export type HighestActionPriorityType =
+  | 'P0_DEFICIT'
+  | 'P1_EMERGENCY_GAP'
+  | 'P2_HIGH_COST_OBLIGATIONS'
+  | 'P3_INSUFFICIENT_BUFFER'
+  | 'P4_GOAL_CONTRIBUTION'
+  | 'P5_WEALTH_ACCELERATION';
+
+export interface HighestPriorityAction {
+  id: string;
+  title: string;
+  priority_type: HighestActionPriorityType;
+  priority_rank: 1;
+  why_it_matters: string;
+  exact_data_supporting_it: {
+    monthly_income: number;
+    monthly_expenses: number;
+    monthly_surplus: number;
+    is_deficit: boolean;
+    emergency_fund_target: number;
+    existing_liquid_savings: number;
+    emergency_fund_gap: number;
+    monthly_debt_obligations: number;
+    allocated_amount?: number;
+    goal_remaining_gap?: number;
+    target_corpus?: number;
+    [key: string]: unknown;
+  };
+  expected_measurable_effect: string;
+  cta: {
+    label: string;
+    destination: string;
+    action_type: 'NAVIGATE' | 'OPEN_MODAL';
+  };
+  confidence_source: {
+    data_source: 'OBSERVED_LEDGER' | 'STATED_BASELINE' | 'DETERMINISTIC_MODEL';
+    confidence_score: number;
+    supporting_fields: string[];
+    calculation_reference: string;
+  };
+}
+
 export interface ActionPlan {
   id?: string;
   user_id?: string;
@@ -814,6 +886,7 @@ export interface ActionPlan {
   user_overrides?: UserActionOverride;
   baseline_plan?: Omit<ActionPlan, 'baseline_plan'>;
   primary_summary: string;
+  highest_priority_action?: HighestPriorityAction;
   confirmed_at?: string;
   created_at?: string;
   updated_at?: string;
@@ -867,7 +940,7 @@ export interface ExtractedFieldEvidence {
 export interface ExtractionResult {
   document_id: string;
   document_type: string;
-  extraction_status: 'draft_ready' | 'needs_review' | 'extraction_failed' | 'confirmed';
+  extraction_status: 'draft_ready' | 'needs_review' | 'extraction_failed' | 'confirmed' | 'rejected' | 'ocr_unavailable' | 'unsupported_document';
   confidence_score: number;
   extracted_data: Record<string, unknown>;
   evidence: ExtractedFieldEvidence[];
@@ -903,6 +976,17 @@ export const ocrApi = {
       imported_record_ids: string[];
       status: string;
     }>('/ocr/confirm', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  reject: async (data: { document_id: string; reason?: string }) => {
+    return request<{
+      success: boolean;
+      message: string;
+      document_id: string;
+      status: string;
+    }>('/ocr/reject', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -958,9 +1042,27 @@ export interface CroreSensitivityCell {
   time_saved_months?: number;
 }
 
+export interface AccelerationLeverOption {
+  id: string;
+  label: string;
+  category: 'SURPLUS' | 'EXPENSE' | 'INCOME' | 'STEPUP';
+  delta_amount: number;
+  monthly_contribution: number;
+  months_to_target: number | null;
+  years_to_target: number | null;
+  target_date: string | null;
+  months_saved: number;
+  years_saved: string;
+  is_highest_impact: boolean;
+  mathematical_impact_description: string;
+}
+
 export interface CroreCalculation {
+  target_amount?: number;
   starting_capital: number;
   current_monthly_contribution: number;
+  assumed_return_pct?: number;
+  is_already_achieved?: boolean;
   base_case: CroreScenario;
   improved_case: CroreScenario;
   accelerated_case: CroreScenario;
@@ -970,11 +1072,33 @@ export interface CroreCalculation {
   sensitivity_matrix: CroreSensitivityCell[];
   lever_analysis: {
     highest_impact_lever: string;
-    description: string;
+    description?: string;
+    impact_summary?: string;
     recommended_change: string;
+    months_saved?: number;
+    surplus_boost_option?: {
+      boost_amount: number;
+      new_monthly_surplus: number;
+      months_saved: number;
+      years_saved: string;
+    };
+    stepup_sip_option?: {
+      annual_stepup_pct: number;
+      months_saved: number;
+      years_saved: string;
+    };
+    unnecessary_expense_reduction_option?: {
+      reduction_amount: number;
+      months_saved: number;
+      years_saved: string;
+    };
   };
+  acceleration_levers?: AccelerationLeverOption[];
+  largest_impact_variable?: string;
   one_next_action: string;
-  deterministic_assumptions: {
+  disclaimer?: string;
+  methodology_notes?: string[];
+  deterministic_assumptions?: {
     compounding_frequency: string;
     max_return_bound_pct: number;
     inflation_adjustment: string;
@@ -1008,6 +1132,271 @@ export const croreApi = {
   },
 };
 
+export interface CanonicalFinancialState {
+  month: string;
+  data_status: {
+    has_observed_transactions: boolean;
+    has_financial_profile: boolean;
+    has_goals: boolean;
+    income_source: 'observed_ledger' | 'profile_stated' | 'missing';
+    expense_source: 'observed_ledger' | 'profile_stated' | 'missing';
+    is_fully_configured: boolean;
+  };
+  income: {
+    monthly_net_income: number | null;
+    other_recurring_income: number;
+    annual_income_growth_pct: number;
+    formatted_income: string;
+  };
+  expenses: {
+    monthly_essential_expenses: number | null;
+    monthly_debt_obligations: number | null;
+    essential_monthly_expenses: number | null;
+    debt_payments: number;
+    discretionary_monthly_expenses: number;
+    total_monthly_expenses: number | null;
+    annual_expense_growth_pct: number;
+    formatted_expenses: string;
+    top_categories: Array<{ category: string; amount: number; percentage: number }>;
+  };
+  cashflow: {
+    monthly_surplus: number | null;
+    actual_monthly_surplus: number | null;
+    savings_rate: number | null;
+    is_deficit: boolean;
+    deficit_amount: number;
+    formatted_surplus: string;
+    formatted_savings_rate: string;
+  };
+  capital_and_savings: {
+    liquid_savings: number | null;
+    existing_investments: number | null;
+    emergency_fund_target: number | null;
+    emergency_fund_gap: number | null;
+    emergency_coverage_months: number | null;
+    is_emergency_complete: boolean;
+    current_investable_capital: number | null;
+    monthly_investment_capacity: number | null;
+  };
+  planning_profile: {
+    current_age: number | null;
+    target_retirement_age: number | null;
+    desired_monthly_lifestyle_income: number | null;
+    dependents: number;
+    has_health_insurance: boolean;
+    has_life_insurance: boolean;
+  };
+  goals: Array<{
+    id: string;
+    title: string;
+    target_amount: number;
+    current_amount: number;
+    target_date?: string;
+    priority: string;
+  }>;
+  assumptions: {
+    expected_return_pct: number;
+    inflation_rate_pct: number;
+    withdrawal_rate_pct: number;
+  };
+  missing_fields: string[];
+}
 
+export const canonicalFinanceApi = {
+  getCanonicalState: async (month?: string) => {
+    const query = month ? `?month=${encodeURIComponent(month)}` : '';
+    return request<CanonicalFinancialState>(`/finance/canonical${query}`);
+  },
+};
+
+export interface FinancialMetricChange {
+  current: number | null;
+  previous: number | null;
+  delta: number | null;
+  delta_pct: number | null;
+  direction: 'IMPROVED' | 'DEGRADED' | 'UNCHANGED' | 'BASELINE';
+}
+
+export interface ReviewMilestone {
+  id:
+    | 'first_positive_surplus'
+    | 'emergency_fund_fully_funded'
+    | 'savings_rate_improvement'
+    | 'target_acceleration'
+    | 'debt_reduction'
+    | 'consistent_positive_cashflow';
+  title: string;
+  status: 'ACHIEVED' | 'IN_PROGRESS' | 'LOCKED';
+  description: string;
+  progress_pct?: number;
+  achieved_date?: string | null;
+}
+
+export interface StructuredMonthlyReview {
+  month: string;
+  has_prior_month_data: boolean;
+  prior_month_note?: string;
+
+  // 1. What changed?
+  what_changed: {
+    summary: string;
+    income: FinancialMetricChange;
+    expenses: FinancialMetricChange;
+    surplus: FinancialMetricChange;
+    savings_rate: FinancialMetricChange;
+  };
+
+  // 2. Why did it change?
+  why_it_changed: {
+    summary: string;
+    top_category_drivers: Array<{
+      category: string;
+      current_amount: number;
+      previous_amount: number | null;
+      delta: number | null;
+      percentage_of_total_change?: number;
+    }>;
+  };
+
+  // 3. What improved?
+  what_improved: {
+    items: string[];
+    summary: string;
+  };
+
+  // 4. What got worse?
+  what_got_worse: {
+    items: string[];
+    summary: string;
+  };
+
+  // 5. What is my current surplus?
+  current_surplus: {
+    amount: number | null;
+    formatted: string;
+    is_deficit: boolean;
+    formula_breakdown: string;
+    status_label: string;
+  };
+
+  // 6. How is my savings rate changing?
+  savings_rate_trend: {
+    current_rate: number | null;
+    previous_rate: number | null;
+    delta_percentage_points: number | null;
+    trend_description: string;
+  };
+
+  // 7. How is my emergency fund progressing?
+  emergency_fund_progress: {
+    current_amount: number;
+    target_amount: number;
+    gap_amount: number;
+    coverage_months: number;
+    progress_pct: number;
+    status: 'FULLY_FUNDED' | 'IN_PROGRESS' | 'NEEDS_ATTENTION';
+    month_over_month_change?: string;
+  };
+
+  // 8. Did my ₹1Cr path accelerate or slow down?
+  crore_path_trajectory: {
+    status: 'ACCELERATED' | 'SLOWED_DOWN' | 'PACE_MAINTAINED' | 'BASELINE_ESTABLISHED' | 'UNAVAILABLE';
+    current_target_date: string | null;
+    previous_target_date: string | null;
+    current_months_to_target: number | null;
+    previous_months_to_target: number | null;
+    months_delta: number | null;
+    summary: string;
+  };
+
+  // 9. What ONE action matters next?
+  one_action_matters_next: {
+    action: string;
+    reason: string;
+    priority_area: 'EMERGENCY_RESERVE' | 'HIGH_COST_DEBT' | 'EXPENSE_DISCIPLINE' | 'COMPOUNDING_SIP' | 'CAPITAL_PRESERVATION';
+  };
+
+  // Meaningful milestones
+  milestones: ReviewMilestone[];
+
+  // Anti-Dark Pattern Guarantees
+  anti_dark_pattern_compliance: {
+    no_streak_anxiety: boolean;
+    no_shaming: boolean;
+    no_fear: boolean;
+    no_fomo: boolean;
+    no_fake_urgency: boolean;
+    no_excessive_notifications: boolean;
+  };
+}
+
+export const monthlyReviewApi = {
+  getMonthlyReview: async (month?: string) => {
+    const query = month ? `?month=${encodeURIComponent(month)}` : '';
+    return request<StructuredMonthlyReview>(`/finance/monthly-review${query}`);
+  },
+};
+
+export type ChangeType =
+  | 'income_change'
+  | 'expense_change'
+  | 'surplus_change'
+  | 'savings_rate_change'
+  | 'largest_category_movement'
+  | 'emergency_fund_progress'
+  | 'investment_contribution_change'
+  | 'goal_progress'
+  | 'crore_timeline_change';
+
+export interface ChangeSourceData {
+  data_source: 'OBSERVED_LEDGER' | 'STATED_BASELINE' | 'DETERMINISTIC_MODEL';
+  current_period: string;
+  previous_period: string;
+  formula_or_derivation: string;
+  underlying_fields: string[];
+  confidence: number;
+}
+
+export interface DetectedChange {
+  id: string;
+  change_type: ChangeType;
+  title: string;
+  headline: string;
+  direction: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
+  materiality_score: number;
+  materiality_level: 'CRITICAL' | 'SIGNIFICANT' | 'MODERATE';
+  rank: number;
+  current_value: number | null;
+  previous_value: number | null;
+  delta: number | null;
+  delta_pct: number | null;
+  unit: 'INR' | 'PERCENT' | 'MONTHS';
+  formatted_delta: string;
+  source_data: ChangeSourceData;
+  deterministic_explanation: string;
+  llm_narrative?: string;
+}
+
+export interface ChangeDetectionResult {
+  current_period: string;
+  previous_period: string | null;
+  has_sufficient_history: boolean;
+  insufficient_history_reason?: string;
+  status: 'ANALYSIS_COMPLETE' | 'INSUFFICIENT_HISTORY' | 'NO_MATERIAL_CHANGES';
+  total_changes_detected: number;
+  top_changes: DetectedChange[];
+  evaluation_timestamp: string;
+  disclaimer: string;
+}
+
+export const changeDetectionApi = {
+  getChanges: async (month?: string, previousMonth?: string) => {
+    const params = new URLSearchParams();
+    if (month) params.append('month', month);
+    if (previousMonth) params.append('previous_month', previousMonth);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request<ChangeDetectionResult>(`/finance/changes${query}`);
+  },
+};
 
 

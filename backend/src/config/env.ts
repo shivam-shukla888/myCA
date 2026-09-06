@@ -1,7 +1,5 @@
 import dotenv from 'dotenv';
-if (process.env.NODE_ENV !== 'test') {
-  dotenv.config();
-}
+dotenv.config();
 export interface EnvConfig {
   PORT: number;
   NODE_ENV: string;
@@ -102,7 +100,7 @@ export const env: EnvConfig = {
   // PRODUCTION HARDENING: No wildcard CORS default. Must be explicitly configured.
   CORS_ORIGIN: process.env.CORS_ORIGIN || '',
   ENABLE_DEV_AUTH: enableDevAuth,
-  ALLOWED_REDIRECT_URLS: (process.env.ALLOWED_REDIRECT_URLS || 'http://localhost:3000,https://personal-ai-ca.vercel.app')
+  ALLOWED_REDIRECT_URLS: (process.env.ALLOWED_REDIRECT_URLS || 'http://localhost:3000,https://personal-ai-ca.vercel.app,https://my-ca-silk.vercel.app')
     .split(',')
     .map((u) => u.trim()),
   IS_SUPABASE_CONFIGURED: Boolean(
