@@ -288,7 +288,7 @@ export default function PlanPage() {
   const surplus = activePlanToDisplay?.monthly_surplus ?? 0;
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+    <div style={{ padding: '0', maxWidth: '1400px', width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Top Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
         <div>
@@ -480,6 +480,98 @@ export default function PlanPage() {
             </span>
           )}
         </div>
+
+        {/* Single Highest-Priority Action */}
+        {activePlanToDisplay?.highest_priority_action && (
+          <div
+            style={{
+              padding: '24px',
+              background: 'var(--canvas-surface)',
+              borderLeft: `4px solid ${
+                activePlanToDisplay.highest_priority_action.priority_type.startsWith('P0')
+                  ? 'var(--signal-alert)'
+                  : 'var(--signal-forest)'
+              }`,
+              borderTop: '1px solid var(--border-hairline)',
+              borderRight: '1px solid var(--border-hairline)',
+              borderBottom: '1px solid var(--border-hairline)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldCheck
+                  size={18}
+                  style={{
+                    color: activePlanToDisplay.highest_priority_action.priority_type.startsWith('P0')
+                      ? 'var(--signal-alert)'
+                      : 'var(--signal-forest)',
+                  }}
+                />
+                <span className="meta-tag" style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>
+                  ONE HIGHEST-PRIORITY ACTION • {activePlanToDisplay.highest_priority_action.priority_type}
+                </span>
+              </div>
+              <span
+                className="badge-signal"
+                style={{
+                  fontSize: '11px',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--ink-tertiary)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                Source: {activePlanToDisplay.highest_priority_action.confidence_source.data_source}
+              </span>
+            </div>
+
+            <h3 style={{ fontSize: '18px', fontWeight: 600, margin: '2px 0 0 0', fontFamily: 'var(--font-serif)' }}>
+              {activePlanToDisplay.highest_priority_action.title}
+            </h3>
+
+            <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--ink-secondary)', lineHeight: 1.5 }}>
+              {activePlanToDisplay.highest_priority_action.why_it_matters}
+            </p>
+
+            <div
+              style={{
+                padding: '14px 16px',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--border-hairline)',
+                borderLeft: '3px solid var(--signal-forest)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '13px',
+                lineHeight: 1.5,
+              }}
+            >
+              <div style={{ fontSize: '10.5px', color: 'var(--signal-forest)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', fontWeight: 600 }}>
+                Expected Measurable Effect
+              </div>
+              {activePlanToDisplay.highest_priority_action.expected_measurable_effect}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', flexWrap: 'wrap' }}>
+              <a
+                href={activePlanToDisplay.highest_priority_action.cta.destination}
+                className="instrument-btn"
+                style={{
+                  padding: '10px 18px',
+                  fontSize: '13px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  textDecoration: 'none',
+                  minHeight: '44px',
+                }}
+              >
+                <span>{activePlanToDisplay.highest_priority_action.cta.label}</span>
+                <ChevronRight size={14} />
+              </a>
+            </div>
+          </div>
+        )}
 
         {/* Action Item Cards */}
         {isDeficit ? (

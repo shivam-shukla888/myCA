@@ -7,11 +7,14 @@ export interface UserCroreStatusResponse {
   canonical_state: CanonicalFinancialState;
   calculation: CroreCalculationResult;
   missing_inputs: string[];
+  is_available: boolean;
+  status: 'READY' | 'INSUFFICIENT_DATA';
 }
 
 export class CroreService {
   /**
    * Generates live ₹1 Crore shortest path analysis based on the user's canonical financial context.
+   * If required baseline inputs are unknown, flags status as INSUFFICIENT_DATA and avoids fabricating target dates.
    */
   async getUserCroreStatus(userId: string, targetMonth?: string): Promise<UserCroreStatusResponse> {
     if (!userId) {
@@ -20,13 +23,20 @@ export class CroreService {
 
     const state = await canonicalFinanceService.getCanonicalFinancialState(userId, targetMonth);
 
+    const hasSufficientData = Boolean(
+      state.data_status.has_observed_transactions ||
+      state.income.monthly_net_income !== null ||
+      state.expenses.total_monthly_expenses !== null ||
+      state.capital_and_savings.existing_investments !== null
+    );
+
     // Starting capital = existing investments + excess liquid savings (over emergency fund)
     const startingCapital = state.capital_and_savings.current_investable_capital ?? 0;
 
     // Monthly contribution = investment capacity or positive surplus
     const monthlyContribution = state.capital_and_savings.monthly_investment_capacity ?? (
-      state.cashflow.actual_monthly_surplus !== null && state.cashflow.actual_monthly_surplus > 0
-        ? state.cashflow.actual_monthly_surplus
+      state.cashflow.monthly_surplus !== null && state.cashflow.monthly_surplus > 0
+        ? state.cashflow.monthly_surplus
         : 0
     );
 
@@ -38,10 +48,28 @@ export class CroreService {
       currentMonthlyExpenses: state.expenses.total_monthly_expenses ?? undefined,
     });
 
+    if (!hasSufficientData) {
+      calculation.base_case.target_date = null;
+      calculation.base_case.months_to_target = null;
+      calculation.base_case.years_to_target = null;
+      calculation.shortest_modeled_path.target_date = null;
+      calculation.shortest_modeled_path.months_to_target = null;
+      calculation.shortest_modeled_path.years_to_target = null;
+      calculation.improved_case.target_date = null;
+      calculation.improved_case.months_to_target = null;
+      calculation.accelerated_case.target_date = null;
+      calculation.accelerated_case.months_to_target = null;
+      calculation.capital_only_case.target_date = null;
+      calculation.capital_only_case.months_to_target = null;
+      calculation.one_next_action = 'Set up your financial baseline or record transactions to unlock your ₹1 Crore trajectory.';
+    }
+
     return {
       canonical_state: state,
       calculation,
       missing_inputs: state.missing_fields,
+      is_available: hasSufficientData,
+      status: hasSufficientData ? 'READY' : 'INSUFFICIENT_DATA',
     };
   }
 

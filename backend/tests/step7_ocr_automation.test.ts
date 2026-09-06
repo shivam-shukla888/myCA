@@ -26,6 +26,7 @@ const tokenBob = `mock-test-token:${USER_BOB}:bob@example.com`;
 async function runStep7OCRTests() {
   console.log('=== RUNNING STEP 7: OCR INPUT AUTOMATION TEST SUITE ===\n');
 
+  const testRunId = Date.now();
   let passed = 0;
   let failed = 0;
 
@@ -66,12 +67,15 @@ async function runStep7OCRTests() {
 
     // Test C: Missing real provider fails closed with OCR_PROVIDER_NOT_CONFIGURED in production
     process.env.ENABLE_TEST_OCR_MOCK = 'false';
+    const savedGroq = process.env.GROQ_API_KEY;
+    delete process.env.GROQ_API_KEY;
     let prodFailsClosed = false;
     try {
       getOCRProvider();
     } catch (err: any) {
       prodFailsClosed = err.code === 'OCR_PROVIDER_NOT_CONFIGURED' || err.statusCode === 400;
     }
+    if (savedGroq) process.env.GROQ_API_KEY = savedGroq;
     assert(prodFailsClosed, 'Test C: In production with unconfigured provider, fails closed with OCR_PROVIDER_NOT_CONFIGURED');
 
     // Restore test env
@@ -228,7 +232,7 @@ async function runStep7OCRTests() {
 
     // Create a mock salary slip document for Alice
     const aliceDoc = await documentService.createDocumentMetadata(USER_ALICE, {
-      file_name: 'payslip_august_2026.pdf',
+      file_name: `payslip_august_${testRunId}.pdf`,
       file_type: 'pdf',
       file_size_bytes: 102400,
       mime_type: 'application/pdf',
@@ -354,7 +358,7 @@ async function runStep7OCRTests() {
     console.log('\n--- Group 7: Bank Statement Transaction Batch Confirmation ---');
 
     const bankDoc = await documentService.createDocumentMetadata(USER_BOB, {
-      file_name: 'hdfc_bank_statement.pdf',
+      file_name: `hdfc_bank_statement_${testRunId}.pdf`,
       file_type: 'pdf',
       file_size_bytes: 204800,
       mime_type: 'application/pdf',
@@ -399,6 +403,31 @@ async function runStep7OCRTests() {
       fetchedTx.user_verified === true,
       'Test X: All imported transactions linked to document_id with user_verified=true',
       fetchedTx
+    );
+
+    // ======================================================================
+    // 8. DUPLICATE DOCUMENT PREVENTION (SHA-256 FINGERPRINT)
+    // ======================================================================
+    console.log('\n--- Group 8: Duplicate Document Prevention & Fingerprinting ---');
+
+    const duplicateBankDoc = await documentService.createDocumentMetadata(USER_BOB, {
+      file_name: `hdfc_bank_statement_${testRunId}.pdf`,
+      file_type: 'pdf',
+      file_size_bytes: 204800,
+      mime_type: 'application/pdf',
+      document_type: 'bank_statement',
+      financial_year: '2026-27',
+    });
+
+    const bobExtractDuplicate = await request(app)
+      .post(`/api/v1/ocr/extract/${duplicateBankDoc.id}`)
+      .set('Authorization', `Bearer ${tokenBob}`);
+
+    assert(
+      bobExtractDuplicate.status === 409 &&
+      (bobExtractDuplicate.body.code === 'DUPLICATE_DOCUMENT_DETECTED' || bobExtractDuplicate.body.error?.code === 'DUPLICATE_DOCUMENT_DETECTED'),
+      'Test Y: Duplicate Detection - Re-uploading identical document returns 409 DUPLICATE_DOCUMENT_DETECTED',
+      bobExtractDuplicate.body
     );
 
   } catch (err) {

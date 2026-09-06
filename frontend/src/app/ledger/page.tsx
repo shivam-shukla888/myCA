@@ -619,155 +619,160 @@ export default function LedgerPage() {
           </div>
         </div>
 
-        {/* Table Column Headers */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '110px 2fr 1.2fr 110px 100px 130px 90px',
-          padding: '10px 20px',
-          background: 'var(--canvas-inset)',
-          borderBottom: '1px solid var(--border-hairline)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '10px',
-          fontWeight: 600,
-          letterSpacing: '0.06em',
-          color: 'var(--ink-tertiary)'
-        }}>
-          <div>DATE</div>
-          <div>DESCRIPTION</div>
-          <div>CATEGORY</div>
-          <div>ACCOUNT</div>
-          <div>TYPE</div>
-          <div style={{ textAlign: 'right' }}>AMOUNT (INR)</div>
-          <div style={{ textAlign: 'center' }}>ACTIONS</div>
-        </div>
-
-        {/* Table Body */}
-        {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-tertiary)', fontSize: '13px' }}>
-            Loading {monthDisplayLabel} ledger events...
-          </div>
-        ) : transactions.length === 0 ? (
-          <div style={{ padding: '48px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-            <div style={{ color: 'var(--ink-tertiary)', fontSize: '14px' }}>
-              No transactions recorded for {monthDisplayLabel}.
+        {/* Table Horizontal Scroll Container */}
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <div style={{ minWidth: '700px' }}>
+            {/* Table Column Headers */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '110px 2fr 1.2fr 110px 100px 130px 90px',
+              padding: '10px 20px',
+              background: 'var(--canvas-inset)',
+              borderBottom: '1px solid var(--border-hairline)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10px',
+              fontWeight: 600,
+              letterSpacing: '0.06em',
+              color: 'var(--ink-tertiary)'
+            }}>
+              <div>DATE</div>
+              <div>DESCRIPTION</div>
+              <div>CATEGORY</div>
+              <div>ACCOUNT</div>
+              <div>TYPE</div>
+              <div style={{ textAlign: 'right' }}>AMOUNT (INR)</div>
+              <div style={{ textAlign: 'center' }}>ACTIONS</div>
             </div>
-            <p style={{ color: 'var(--ink-secondary)', fontSize: '12.5px', maxWidth: '440px', margin: 0 }}>
-              Add your income, expenses, and account transfers above to generate your monthly financial snapshot and calculate your surplus.
-            </p>
-            <button
-              onClick={() => handleOpenCreate('expense')}
-              className="instrument-btn"
-              style={{ marginTop: '8px' }}
-            >
-              <Plus size={14} /> Record First Entry
-            </button>
-          </div>
-        ) : (
-          transactions.map((tx, idx) => {
-            const isIncome = tx.type === 'income' || tx.type === 'credit';
-            const isTransfer = tx.type === 'transfer';
 
-            return (
-              <div
-                key={tx.id}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '110px 2fr 1.2fr 110px 100px 130px 90px',
-                  padding: '12px 20px',
-                  borderBottom: idx < transactions.length - 1 ? '1px solid var(--border-hairline)' : 'none',
-                  alignItems: 'center',
-                  fontSize: '12.5px',
-                  background: 'var(--canvas-surface)',
-                  transition: 'background 0.12s ease'
-                }}
-              >
-                {/* Date */}
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ink-secondary)' }}>
-                  {tx.date}
-                </div>
-
-                {/* Description */}
-                <div>
-                  <div style={{ fontWeight: 600, color: 'var(--ink-primary)' }}>
-                    {tx.description}
-                  </div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9.5px', color: 'var(--ink-tertiary)' }}>
-                    ID: #{tx.id.slice(0, 8)}
-                  </div>
-                </div>
-
-                {/* Category */}
-                <div>
-                  <span className="badge-signal" style={{
-                    fontSize: '10px',
-                    background: isIncome ? 'rgba(16, 185, 129, 0.08)' : isTransfer ? 'rgba(100, 116, 139, 0.08)' : 'rgba(245, 158, 11, 0.08)',
-                    color: isIncome ? 'var(--signal-forest)' : isTransfer ? 'var(--ink-secondary)' : 'var(--ink-primary)',
-                    border: '1px solid var(--border-hairline)'
-                  }}>
-                    {tx.category || 'General'}
-                  </span>
-                  {tx.is_tax_relevant && (
-                    <span className="badge-signal badge-forest" style={{ marginLeft: '4px', fontSize: '9px' }}>
-                      80C/80D
-                    </span>
-                  )}
-                </div>
-
-                {/* Account */}
-                <div style={{ fontSize: '11.5px', color: 'var(--ink-secondary)' }}>
-                  {tx.account || '—'}
-                </div>
-
-                {/* Type Badge */}
-                <div>
-                  <span style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    color: isIncome ? 'var(--signal-forest)' : isTransfer ? 'var(--ink-secondary)' : 'var(--ink-primary)',
-                    padding: '2px 6px',
-                    background: 'var(--canvas-inset)',
-                    border: '1px solid var(--border-hairline)'
-                  }}>
-                    {tx.type}
-                  </span>
-                </div>
-
-                {/* Amount */}
-                <div style={{
-                  textAlign: 'right',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: isIncome ? 'var(--signal-forest)' : isTransfer ? 'var(--ink-secondary)' : 'var(--ink-primary)'
-                }}>
-                  {isIncome ? '+' : isTransfer ? '⇄ ' : '-'}₹{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
-                  <button
-                    onClick={() => handleOpenEdit(tx)}
-                    className="action-link"
-                    title="Edit transaction"
-                    style={{ padding: '4px', display: 'inline-flex' }}
-                  >
-                    <Edit2 size={13} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteTransaction(tx.id, tx.description)}
-                    className="action-link"
-                    title="Delete transaction"
-                    style={{ padding: '4px', display: 'inline-flex', color: 'var(--signal-alert)' }}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
+            {/* Table Body */}
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-tertiary)', fontSize: '13px' }}>
+                Loading {monthDisplayLabel} ledger events...
               </div>
-            );
-          })
-        )}
+            ) : transactions.length === 0 ? (
+              <div style={{ padding: '48px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <div style={{ color: 'var(--ink-tertiary)', fontSize: '14px' }}>
+                  No transactions recorded for {monthDisplayLabel}.
+                </div>
+                <p style={{ color: 'var(--ink-secondary)', fontSize: '12.5px', maxWidth: '440px', margin: 0 }}>
+                  Add your income, expenses, and account transfers above to generate your monthly financial snapshot and calculate your surplus.
+                </p>
+                <button
+                  onClick={() => handleOpenCreate('expense')}
+                  className="instrument-btn"
+                  style={{ marginTop: '8px', minHeight: '44px' }}
+                >
+                  <Plus size={14} /> Record First Entry
+                </button>
+              </div>
+            ) : (
+              transactions.map((tx, idx) => {
+                const isIncome = tx.type === 'income' || tx.type === 'credit';
+                const isTransfer = tx.type === 'transfer';
+
+                return (
+                  <div
+                    key={tx.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '110px 2fr 1.2fr 110px 100px 130px 90px',
+                      padding: '12px 20px',
+                      borderBottom: idx < transactions.length - 1 ? '1px solid var(--border-hairline)' : 'none',
+                      alignItems: 'center',
+                      fontSize: '12.5px',
+                      background: 'var(--canvas-surface)',
+                      transition: 'background 0.12s ease'
+                    }}
+                  >
+                    {/* Date */}
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ink-secondary)' }}>
+                      {tx.date}
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <div style={{ fontWeight: 600, color: 'var(--ink-primary)' }}>
+                        {tx.description}
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9.5px', color: 'var(--ink-tertiary)' }}>
+                        ID: #{tx.id.slice(0, 8)}
+                      </div>
+                    </div>
+
+                    {/* Category */}
+                    <div>
+                      <span className="badge-signal" style={{
+                        fontSize: '10px',
+                        background: isIncome ? 'rgba(16, 185, 129, 0.08)' : isTransfer ? 'rgba(100, 116, 139, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                        color: isIncome ? 'var(--signal-forest)' : isTransfer ? 'var(--ink-secondary)' : 'var(--ink-primary)',
+                        border: '1px solid var(--border-hairline)'
+                      }}>
+                        {tx.category || 'General'}
+                      </span>
+                      {tx.is_tax_relevant && (
+                        <span className="badge-signal badge-forest" style={{ marginLeft: '4px', fontSize: '9px' }}>
+                          80C/80D
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Account */}
+                    <div style={{ fontSize: '11.5px', color: 'var(--ink-secondary)' }}>
+                      {tx.account || '—'}
+                    </div>
+
+                    {/* Type Badge */}
+                    <div>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        color: isIncome ? 'var(--signal-forest)' : isTransfer ? 'var(--ink-secondary)' : 'var(--ink-primary)',
+                        padding: '2px 6px',
+                        background: 'var(--canvas-inset)',
+                        border: '1px solid var(--border-hairline)'
+                      }}>
+                        {tx.type}
+                      </span>
+                    </div>
+
+                    {/* Amount */}
+                    <div style={{
+                      textAlign: 'right',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: isIncome ? 'var(--signal-forest)' : isTransfer ? 'var(--ink-secondary)' : 'var(--ink-primary)'
+                    }}>
+                      {isIncome ? '+' : isTransfer ? '⇄ ' : '-'}₹{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                      <button
+                        onClick={() => handleOpenEdit(tx)}
+                        className="action-link"
+                        title="Edit transaction"
+                        style={{ padding: '4px', display: 'inline-flex' }}
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTransaction(tx.id, tx.description)}
+                        className="action-link"
+                        title="Delete transaction"
+                        style={{ padding: '4px', display: 'inline-flex', color: 'var(--signal-alert)' }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Transaction Add/Edit Modal */}

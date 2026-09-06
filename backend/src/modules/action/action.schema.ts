@@ -84,6 +84,48 @@ export interface ActionFreedomComparison {
   assumption_disclaimer: string;
 }
 
+export type HighestActionPriorityType =
+  | 'P0_DEFICIT'
+  | 'P1_EMERGENCY_GAP'
+  | 'P2_HIGH_COST_OBLIGATIONS'
+  | 'P3_INSUFFICIENT_BUFFER'
+  | 'P4_GOAL_CONTRIBUTION'
+  | 'P5_WEALTH_ACCELERATION';
+
+export interface HighestPriorityAction {
+  id: string;
+  title: string;
+  priority_type: HighestActionPriorityType;
+  priority_rank: 1;
+  why_it_matters: string;
+  exact_data_supporting_it: {
+    monthly_income: number;
+    monthly_expenses: number;
+    monthly_surplus: number;
+    is_deficit: boolean;
+    emergency_fund_target: number;
+    existing_liquid_savings: number;
+    emergency_fund_gap: number;
+    monthly_debt_obligations: number;
+    allocated_amount?: number;
+    goal_remaining_gap?: number;
+    target_corpus?: number;
+    [key: string]: unknown;
+  };
+  expected_measurable_effect: string;
+  cta: {
+    label: string;
+    destination: string;
+    action_type: 'NAVIGATE' | 'OPEN_MODAL';
+  };
+  confidence_source: {
+    data_source: 'OBSERVED_LEDGER' | 'STATED_BASELINE' | 'DETERMINISTIC_MODEL';
+    confidence_score: number;
+    supporting_fields: string[];
+    calculation_reference: string;
+  };
+}
+
 export interface ActionPlan {
   id?: string;
   user_id?: string;
@@ -108,6 +150,7 @@ export interface ActionPlan {
   user_overrides?: UserActionOverride;
   baseline_plan?: Omit<ActionPlan, 'baseline_plan'>;
   primary_summary: string;
+  highest_priority_action: HighestPriorityAction;
   confirmed_at?: string;
   created_at?: string;
   updated_at?: string;

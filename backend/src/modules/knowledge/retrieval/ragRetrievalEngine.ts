@@ -13,6 +13,7 @@ import {
 } from '../knowledge.repository.js';
 import { getSupabaseAdminClient } from '../../../config/supabase.js';
 import { env } from '../../../config/env.js';
+import { PRODUCTION_KNOWLEDGE_SEEDS } from '../productionSeeds.js';
 
 export class RagRetrievalEngine {
   private readonly MIN_CONFIDENCE_THRESHOLD = 0.28;
@@ -151,6 +152,10 @@ export class RagRetrievalEngine {
     }
 
     // In-memory fallback
+    if (inMemoryKnowledgeChunks.size === 0) {
+      this.ensureInMemorySeeds();
+    }
+
     for (const chunk of inMemoryKnowledgeChunks.values()) {
       if (!chunk.is_active) continue;
       const source = inMemoryKnowledgeSources.get(chunk.source_id) ||
@@ -161,6 +166,52 @@ export class RagRetrievalEngine {
     }
 
     return results;
+  }
+
+  private ensureInMemorySeeds(): void {
+    if (inMemoryKnowledgeChunks.size > 0) return;
+    try {
+      const now = new Date().toISOString();
+      for (const seed of PRODUCTION_KNOWLEDGE_SEEDS) {
+        const srcId = seed.source_id;
+        const srcRecord = {
+          ...seed,
+          id: srcId,
+          version: 1,
+          last_verified_at: now,
+          created_at: now,
+          updated_at: now,
+        };
+        inMemoryKnowledgeSources.set(srcId, srcRecord as any);
+
+        if (seed.chunks) {
+          seed.chunks.forEach((c, idx) => {
+            const chunkId = `${srcId}-chunk-${idx + 1}`;
+            inMemoryKnowledgeChunks.set(chunkId, {
+              id: chunkId,
+              chunk_id: chunkId,
+              source_id: srcId,
+              source_slug: srcId,
+              source_version: 1,
+              chunk_index: idx,
+              chunk_type: c.chunk_type || 'EXCERPT',
+              headline: c.headline,
+              content: c.content,
+              content_hash: 'seed-hash',
+              citation_page_or_section: c.citation_page_or_section,
+              is_summary: c.is_summary ?? false,
+              summary_attribution: c.summary_attribution,
+              prompt_injection_flagged: false,
+              is_active: true,
+              created_at: now,
+              updated_at: now,
+            } as any);
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[RagRetrievalEngine] Auto-seeding in-memory knowledge failed:', e);
+    }
   }
 
   private buildInsufficientEvidenceResult(

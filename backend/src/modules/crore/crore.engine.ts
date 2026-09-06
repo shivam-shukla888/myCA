@@ -67,6 +67,21 @@ export interface ControllableLeverAnalysis {
   };
 }
 
+export interface AccelerationLeverOption {
+  id: string;
+  label: string;
+  category: 'SURPLUS' | 'EXPENSE' | 'INCOME' | 'STEPUP';
+  delta_amount: number;
+  monthly_contribution: number;
+  months_to_target: number | null;
+  years_to_target: number | null;
+  target_date: string | null;
+  months_saved: number;
+  years_saved: string;
+  is_highest_impact: boolean;
+  mathematical_impact_description: string;
+}
+
 export interface CroreCalculationResult {
   target_amount: number;
   starting_capital: number;
@@ -81,6 +96,8 @@ export interface CroreCalculationResult {
   milestones: MilestoneItem[];
   sensitivity_matrix: SensitivityMatrixCell[];
   lever_analysis: ControllableLeverAnalysis;
+  acceleration_levers: AccelerationLeverOption[];
+  largest_impact_variable: string;
   one_next_action: string;
   disclaimer: string;
   methodology_notes: string[];
@@ -548,6 +565,115 @@ export function calculateCroreShortestPath(params: SimulateCroreParams): CroreCa
     },
   };
 
+  // -------------------------------------------------------------
+  // 9. Standard Acceleration Levers (Safe Deterministic What-If Scenarios)
+  // -------------------------------------------------------------
+  const leverPlus5kSurplus = simulateCompoundingPath({
+    startingCapital,
+    monthlyContribution: currentMonthlyContribution + 5000,
+    annualReturnPct: assumedReturn,
+    startDate,
+  });
+  const plus5kSaved = baseSim.months && leverPlus5kSurplus.months ? Math.max(baseSim.months - leverPlus5kSurplus.months, 0) : 0;
+
+  const leverPlus10kSurplus = simulateCompoundingPath({
+    startingCapital,
+    monthlyContribution: currentMonthlyContribution + 10000,
+    annualReturnPct: assumedReturn,
+    startDate,
+  });
+  const plus10kSaved = baseSim.months && leverPlus10kSurplus.months ? Math.max(baseSim.months - leverPlus10kSurplus.months, 0) : 0;
+
+  const leverMinus5kExpense = simulateCompoundingPath({
+    startingCapital,
+    monthlyContribution: currentMonthlyContribution + 5000,
+    annualReturnPct: assumedReturn,
+    startDate,
+  });
+  const minus5kSaved = baseSim.months && leverMinus5kExpense.months ? Math.max(baseSim.months - leverMinus5kExpense.months, 0) : 0;
+
+  const leverPlus10kIncome = simulateCompoundingPath({
+    startingCapital,
+    monthlyContribution: currentMonthlyContribution + 10000,
+    annualReturnPct: assumedReturn,
+    startDate,
+  });
+  const plus10kIncomeSaved = baseSim.months && leverPlus10kIncome.months ? Math.max(baseSim.months - leverPlus10kIncome.months, 0) : 0;
+
+  const maxLeverSaved = Math.max(plus5kSaved, plus10kSaved, minus5kSaved, plus10kIncomeSaved);
+
+  const acceleration_levers: AccelerationLeverOption[] = [
+    {
+      id: 'plus_5k_surplus',
+      label: '+₹5,000 monthly surplus',
+      category: 'SURPLUS',
+      delta_amount: 5000,
+      monthly_contribution: currentMonthlyContribution + 5000,
+      months_to_target: leverPlus5kSurplus.months,
+      years_to_target: leverPlus5kSurplus.months !== null ? round2(leverPlus5kSurplus.months / 12) : null,
+      target_date: leverPlus5kSurplus.targetDate,
+      months_saved: plus5kSaved,
+      years_saved: formatYearsMonths(plus5kSaved),
+      is_highest_impact: plus5kSaved > 0 && plus5kSaved === maxLeverSaved,
+      mathematical_impact_description: plus5kSaved > 0
+        ? `Investing ₹5,000 more each month reduces your timeline by ${formatYearsMonths(plus5kSaved)}.`
+        : 'Advances your compounding pace steadily.',
+    },
+    {
+      id: 'plus_10k_surplus',
+      label: '+₹10,000 monthly surplus',
+      category: 'SURPLUS',
+      delta_amount: 10000,
+      monthly_contribution: currentMonthlyContribution + 10000,
+      months_to_target: leverPlus10kSurplus.months,
+      years_to_target: leverPlus10kSurplus.months !== null ? round2(leverPlus10kSurplus.months / 12) : null,
+      target_date: leverPlus10kSurplus.targetDate,
+      months_saved: plus10kSaved,
+      years_saved: formatYearsMonths(plus10kSaved),
+      is_highest_impact: plus10kSaved > 0 && plus10kSaved === maxLeverSaved,
+      mathematical_impact_description: plus10kSaved > 0
+        ? `Investing an extra ₹10,000 monthly reduces your timeline by ${formatYearsMonths(plus10kSaved)}.`
+        : 'Substantially boosts your compounding velocity.',
+    },
+    {
+      id: 'minus_5k_expense',
+      label: '₹5,000 lower monthly expense',
+      category: 'EXPENSE',
+      delta_amount: -5000,
+      monthly_contribution: currentMonthlyContribution + 5000,
+      months_to_target: leverMinus5kExpense.months,
+      years_to_target: leverMinus5kExpense.months !== null ? round2(leverMinus5kExpense.months / 12) : null,
+      target_date: leverMinus5kExpense.targetDate,
+      months_saved: minus5kSaved,
+      years_saved: formatYearsMonths(minus5kSaved),
+      is_highest_impact: minus5kSaved > 0 && minus5kSaved === maxLeverSaved,
+      mathematical_impact_description: minus5kSaved > 0
+        ? `Cutting ₹5,000 in monthly discretionary spending redirects ₹5,000/mo into compounding, saving ${formatYearsMonths(minus5kSaved)}.`
+        : 'Trimming expenses frees regular cashflow without requiring income growth.',
+    },
+    {
+      id: 'plus_10k_income',
+      label: '₹10,000 higher monthly income',
+      category: 'INCOME',
+      delta_amount: 10000,
+      monthly_contribution: currentMonthlyContribution + 10000,
+      months_to_target: leverPlus10kIncome.months,
+      years_to_target: leverPlus10kIncome.months !== null ? round2(leverPlus10kIncome.months / 12) : null,
+      target_date: leverPlus10kIncome.targetDate,
+      months_saved: plus10kIncomeSaved,
+      years_saved: formatYearsMonths(plus10kIncomeSaved),
+      is_highest_impact: plus10kIncomeSaved > 0 && plus10kIncomeSaved === maxLeverSaved,
+      mathematical_impact_description: plus10kIncomeSaved > 0
+        ? `Increasing monthly income by ₹10,000 and investing the full increment saves ${formatYearsMonths(plus10kIncomeSaved)}.`
+        : 'Income expansion drives maximal capital accumulation when saved.',
+    },
+  ];
+
+  let largestImpactVariable = 'Monthly investment volume (scale of contribution)';
+  if (maxLeverSaved > 0) {
+    largestImpactVariable = `Increasing monthly investable cashflow by +₹10,000 (via income growth or surplus optimization) has the largest mathematical impact, saving ${formatYearsMonths(maxLeverSaved)} compared to the current plan.`;
+  }
+
   // ONE NEXT ACTION (Phase 14)
   let oneNextAction = 'Start investing your monthly surplus consistently each month.';
   if (isAlreadyAchieved) {
@@ -574,6 +700,8 @@ export function calculateCroreShortestPath(params: SimulateCroreParams): CroreCa
     milestones,
     sensitivity_matrix,
     lever_analysis,
+    acceleration_levers,
+    largest_impact_variable: largestImpactVariable,
     one_next_action: oneNextAction,
     disclaimer: 'DISCLAIMER: This is an educational mathematical projection based on explicit compounding assumptions. Returns are not guaranteed. Actual investment performance fluctuates with market volatility. This is not regulated personal investment advice.',
     methodology_notes: [

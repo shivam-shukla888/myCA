@@ -69,12 +69,14 @@ You MUST output ONLY a single valid JSON object strictly matching this schema:
 
     const MAX_RETRIES = 2;
     let lastError: any = null;
+    const timeoutMs = options?.timeoutMs ?? 15000;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         const url = `${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`;
         const res = await fetch(url, {
           method: 'POST',
+          signal: AbortSignal.timeout(timeoutMs),
           headers: {
             Authorization: `Bearer ${this.config.apiKey}`,
             'Content-Type': 'application/json',
@@ -89,8 +91,32 @@ You MUST output ONLY a single valid JSON object strictly matching this schema:
         });
 
         if (!res.ok) {
-          const errBody = await res.text();
-          throw new Error(`HTTP ${res.status}: ${errBody}`);
+          const errBody = await res.text().catch(() => '');
+          const sanitizedErrBody = this.sanitizeSecrets(errBody);
+
+          // Fast failover on rate limit (429) — do not block user waiting for quota reset
+          if (res.status === 429) {
+            throw new AppError(
+              `${this.config.providerName} rate limit exceeded (HTTP 429). Triggering fast failover.`,
+              429,
+              'AI_RATE_LIMIT'
+            );
+          }
+
+          // 5xx Server errors
+          if (res.status >= 500) {
+            throw new AppError(
+              `${this.config.providerName} server error (HTTP ${res.status}): ${sanitizedErrBody.slice(0, 200)}`,
+              res.status,
+              'AI_SERVER_ERROR'
+            );
+          }
+
+          throw new AppError(
+            `HTTP ${res.status}: ${sanitizedErrBody.slice(0, 200)}`,
+            res.status,
+            'AI_PROVIDER_HTTP_ERROR'
+          );
         }
 
         const data: any = await res.json();
@@ -126,21 +152,46 @@ You MUST output ONLY a single valid JSON object strictly matching this schema:
         return validated.data;
       } catch (err: any) {
         lastError = err;
-        if (err instanceof AppError && err.code === 'AI_SCHEMA_VALIDATION_FAILED') {
+
+        // Immediately trigger failover on rate limits, schema failures, malformed output, or timeouts
+        if (
+          err instanceof AppError &&
+          (err.code === 'AI_SCHEMA_VALIDATION_FAILED' ||
+            err.code === 'AI_RATE_LIMIT' ||
+            err.code === 'AI_MALFORMED_OUTPUT')
+        ) {
           throw err;
         }
 
+        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+          throw new AppError(
+            `${this.config.providerName} request timed out after ${timeoutMs}ms`,
+            504,
+            'AI_TIMEOUT'
+          );
+        }
+
         if (attempt < MAX_RETRIES) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
         }
       }
     }
 
+    const sanitizedMsg = this.sanitizeSecrets(lastError?.message || 'Unknown error');
     throw new AppError(
-      `${this.config.providerName} generation failed: ${lastError?.message || 'Unknown error'}`,
-      502,
-      'AI_PROVIDER_FAILURE'
+      `${this.config.providerName} generation failed: ${sanitizedMsg}`,
+      lastError?.statusCode || 502,
+      lastError?.code || 'AI_PROVIDER_FAILURE'
     );
+  }
+
+  private sanitizeSecrets(text: string): string {
+    if (!text) return '';
+    let sanitized = text;
+    if (this.config.apiKey) {
+      sanitized = sanitized.split(this.config.apiKey).join('[REDACTED_API_KEY]');
+    }
+    return sanitized.replace(/Bearer\s+[a-zA-Z0-9_\-\.]{15,}/gi, 'Bearer [REDACTED_TOKEN]');
   }
 
   private normalizeOutput(parsed: any): any {

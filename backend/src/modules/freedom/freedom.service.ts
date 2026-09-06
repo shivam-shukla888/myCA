@@ -42,14 +42,14 @@ export class FreedomService {
     const emergencyMonthsTarget = Number(profile?.emergency_fund_target_months ?? 6);
 
     const monthlyExpenses = canonicalState.expenses.total_monthly_expenses ?? (
-      profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 50000
+      profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 0
     );
 
     const desiredMonthlyLifestyleIncome = Number(profile?.desired_monthly_lifestyle_income) > 0
       ? Number(profile?.desired_monthly_lifestyle_income)
       : monthlyExpenses;
 
-    const monthlySurplus = canonicalState.cashflow.actual_monthly_surplus ?? 0;
+    const monthlySurplus = canonicalState.cashflow.monthly_surplus ?? canonicalState.cashflow.actual_monthly_surplus ?? 0;
     const monthlyContribution = canonicalState.capital_and_savings.monthly_investment_capacity ?? (
       monthlySurplus > 0 ? monthlySurplus : 0
     );
@@ -123,7 +123,7 @@ export class FreedomService {
 
     if (monthlyContribution === undefined || desiredMonthlyLifestyleIncome === undefined) {
       const baselineExpenses = canonicalState.expenses.total_monthly_expenses ?? (
-        profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 50000
+        profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 0
       );
 
       if (desiredMonthlyLifestyleIncome === undefined) {
@@ -133,10 +133,9 @@ export class FreedomService {
       }
 
       if (monthlyContribution === undefined) {
+        const surplus = canonicalState.cashflow.monthly_surplus ?? canonicalState.cashflow.actual_monthly_surplus;
         monthlyContribution = canonicalState.capital_and_savings.monthly_investment_capacity ?? (
-          canonicalState.cashflow.actual_monthly_surplus !== null && canonicalState.cashflow.actual_monthly_surplus > 0
-            ? canonicalState.cashflow.actual_monthly_surplus
-            : 0
+          surplus !== null && surplus > 0 ? surplus : 0
         );
       }
     }

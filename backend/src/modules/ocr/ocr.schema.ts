@@ -6,6 +6,8 @@ export const OCR_DOCUMENT_CATEGORIES = [
   'INVESTMENT_STATEMENT',
   'INSURANCE_DOCUMENT',
   'TAX_DOCUMENT',
+  'RECEIPT',
+  'INVOICE',
   'OTHER_FINANCIAL_DOCUMENT',
 ] as const;
 
@@ -204,6 +206,39 @@ export const otherFinancialDocumentDraftSchema = z.object({
   extracted_key_values: z.record(z.any()),
 });
 
+// 7. STRICT STRUCTURED GROQ EXTRACTION CONTRACT
+export const groqDocumentExtractionSchema = z.object({
+  document_type: z.enum([
+    'receipt',
+    'invoice',
+    'salary_slip',
+    'bank_statement',
+    'tax_document',
+    'investment_statement',
+    'insurance_document',
+    'generic_financial_document',
+    'unknown',
+  ]),
+  document_date: z.string().nullable().optional(),
+  issuer: z.string().nullable().optional(),
+  recipient: z.string().nullable().optional(),
+  currency: z.string().nullable().optional(),
+  total_amount: z.number().nullable().optional(),
+  subtotal: z.number().nullable().optional(),
+  tax_amount: z.number().nullable().optional(),
+  invoice_number: z.string().nullable().optional(),
+  salary_amount: z.number().nullable().optional(),
+  transaction_date: z.string().nullable().optional(),
+  merchant: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  extracted_financial_fields: z.record(z.any()).default({}),
+  confidence: z.number().min(0).max(1).default(0.8),
+  warnings: z.array(z.string()).default([]),
+  source_reference: z.string().nullable().optional(),
+});
+
+export type GroqDocumentExtraction = z.infer<typeof groqDocumentExtractionSchema>;
+
 // Extraction Result Schema
 export type ExtractedData =
   | SalarySlipDraft
@@ -211,20 +246,34 @@ export type ExtractedData =
   | InvestmentStatementDraft
   | InsuranceDocumentDraft
   | TaxDocumentDraft
-  | OtherFinancialDocumentDraft;
+  | OtherFinancialDocumentDraft
+  | GroqDocumentExtraction;
+
+export type ExtractionStatus =
+  | 'draft_ready'
+  | 'needs_review'
+  | 'extraction_failed'
+  | 'confirmed'
+  | 'rejected'
+  | 'ocr_unavailable'
+  | 'unsupported_document';
 
 export interface ExtractionResult {
   document_id: string;
   document_type: OCRDocumentCategory;
-  extraction_status: 'draft_ready' | 'needs_review' | 'extraction_failed' | 'confirmed';
+  extraction_status: ExtractionStatus;
   confidence_score: number;
+  confidence_level?: 'CONFIRMED' | 'REVIEW_REQUIRED' | 'LOW_CONFIDENCE' | 'INVALID' | 'UNAVAILABLE';
   extracted_data: ExtractedData;
   evidence: ExtractedFieldEvidence[];
   missing_information: string[];
   validation_errors: string[];
   warnings: string[];
+  file_hash?: string;
   is_mock?: boolean;
   confirmed_at?: string;
+  rejected_at?: string;
+  rejection_reason?: string;
   imported_record_ids?: string[];
 }
 
@@ -236,3 +285,11 @@ export const confirmDocumentSchema = z.object({
 });
 
 export type ConfirmDocumentInput = z.infer<typeof confirmDocumentSchema>;
+
+// User Rejection Payload Schema
+export const rejectDocumentSchema = z.object({
+  document_id: z.string().uuid('Document ID must be a valid UUID'),
+  reason: z.string().max(500).optional(),
+});
+
+export type RejectDocumentInput = z.infer<typeof rejectDocumentSchema>;

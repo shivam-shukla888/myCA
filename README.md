@@ -5,13 +5,13 @@
 [![React](https://img.shields.io/badge/React-19.2-61DAFB.svg?logo=react)](https://react.dev/)
 [![Express](https://img.shields.io/badge/Express-4.21-lightgrey.svg?logo=express)](https://expressjs.com/)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL%2015-3ECF8E.svg?logo=supabase)](https://supabase.com/)
-[![Google Gemini](https://img.shields.io/badge/AI-Google%20Gemini%202.5%20Flash-4285F4.svg?logo=google)](https://deepmind.google/technologies/gemini/)
-[![Groq](https://img.shields.io/badge/Failover-Groq%20Llama%203.3%2070B-F55036.svg)](https://groq.com/)
+[![Groq](https://img.shields.io/badge/Primary%20AI-Groq%20openai%2Fgpt--oss--120b-F55036.svg?logo=groq)](https://groq.com/)
+[![Google Gemini](https://img.shields.io/badge/Fallback%20AI-Google%20Gemini%202.5%20Flash-4285F4.svg?logo=google)](https://deepmind.google/technologies/gemini/)
 [![Security](https://img.shields.io/badge/Security-AES--256--GCM%20%7C%20HMAC--SHA256-green.svg)](https://csrc.nist.gov/)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](#license)
 
 > **Enterprise-grade, privacy-first Autonomous Financial Intelligence Desk & Indian Tax Cartography Engine.**  
-> Built with Next.js 16, TypeScript, Express, Supabase PostgreSQL with strict Row-Level Security (RLS), multi-tier LLM failover orchestration (Google Gemini & Groq Llama 3.3), and tamper-evident cryptographic audit logs.
+> Built with Next.js 16, TypeScript, Express, Supabase PostgreSQL with strict Row-Level Security (RLS), multi-tier LLM failover orchestration (Groq openai/gpt-oss-120b Primary & Google Gemini 2.5 Flash Fallback), and tamper-evident cryptographic audit logs.
 
 ---
 
@@ -24,7 +24,7 @@ Designed to bridge the gap between complex tax regulations and daily financial d
 ### Key Performance & Architectural Metrics
 - **Zero-Trust Multi-Tenancy**: 100% database access isolated via PostgreSQL Row-Level Security (`auth.uid()`).
 - **Cryptographic Integrity**: AES-256-GCM field-level encryption for PII (PAN, GSTIN) and HMAC-SHA256 tamper-evident signatures on AI advisory logs.
-- **High-Availability AI**: Zero-downtime multi-tier fallback pipeline spanning Google Gemini (Tier 1) and Groq/Llama-3.3 (Tier 2) with deterministic safety harnesses.
+- **High-Availability AI**: Resilient multi-tier fallback pipeline spanning Groq (Tier 1 Primary: openai/gpt-oss-120b) and Google Gemini (Tier 2 Fallback: gemini-2.5-flash) with deterministic safety harnesses.
 - **Sub-Second Mutation Defense**: Distributed idempotency middleware (`Idempotency-Key`) preventing double-spend and duplicate transaction entries.
 - **Enterprise Rate Limiting**: Multi-tiered token-bucket protection distinguishing authentication, AI compute, and standard CRUD endpoints.
 
@@ -55,7 +55,7 @@ Designed to bridge the gap between complex tax regulations and daily financial d
       │  ├─ Strict RLS on auth.uid() │                         │  ├─ Tier 1: Groq             │
       │  ├─ AES-256-GCM Encrypted    │                         │  │          (gpt-oss-120b)   │
       │  ├─ HMAC Audit Ledger        │                         │  ├─ Tier 2: Google Gemini    │
-      │  └─ 15m Signed Storage URLs  │                         │  │          (gemini-2.5-flash│
+      │  └─ 15m Signed Storage URLs  │                         │  │          (gemini-2.5-flash) │
       └──────────────────────────────┘                         │  └─ Tier 3: MockAIProvider   │
                                                                │             (dev/test only)  │
                                                                └──────────────────────────────┘
@@ -67,7 +67,7 @@ Designed to bridge the gap between complex tax regulations and daily financial d
 
 ### 1. Multi-Tiered Resilient AI Orchestration
 - **Primary Inference (Groq openai/gpt-oss-120b)**: Ultra-low latency reasoning engine using Groq OpenAI-compatible endpoints with strict Zod schema validation and temperature tuning for financial accuracy.
-- **Zero-Downtime Failover (Google Gemini 2.5-Flash)**: Real-time fallback handler that automatically catches upstream API latency or outages and re-routes requests without user interruption.
+- **Automated Failover (Google Gemini 2.5-Flash)**: Real-time fallback handler that automatically catches upstream API latency or outages and re-routes requests with graceful error boundaries.
 - **Deterministic Guardrails**: Safe fallback provider preventing hallucinated advice when regulatory thresholds or uncertain financial intents are queried.
 
 ### 2. Bank-Grade Security & Cryptography
@@ -105,7 +105,7 @@ Designed to bridge the gap between complex tax regulations and daily financial d
 | **Frontend** | Next.js 16 (App Router), React 19, TypeScript, Lucide Icons, Vanilla CSS Variables (Dark/Light mode) |
 | **Backend API** | Node.js, Express.js 4, TypeScript 5.8, tsx runtime |
 | **Database & Auth** | Supabase (PostgreSQL 15), Supabase Auth (JWT), Row-Level Security (RLS) Policies, PostgreSQL Triggers |
-| **Artificial Intelligence** | Google Gemini API (`@google/genai`), Groq SDK (Llama 3.3 70B Versatile), Zod Schema Enforcement |
+| **Artificial Intelligence** | Groq API (`openai/gpt-oss-120b` Primary), Google Gemini API (`@google/genai` / `gemini-2.5-flash` Fallback), Zod Schema Enforcement |
 | **Security & Privacy** | AES-256-GCM, HMAC-SHA256, Helmet.js (CSP, HSTS, Frameguard DENY), Timing-Safe Verification |
 | **Resilience & Middleware**| Idempotency Protection, Tiered Rate Limiting (`express-rate-limit`), Request Timeouts, Centralized AppError System |
 | **Testing & Quality** | Supertest, Node.js Native Test Runner, Custom Performance & Security Test Harnesses |
@@ -180,7 +180,7 @@ All protected endpoints require `Authorization: Bearer <SUPABASE_JWT>`.
 - **Node.js**: `v20.x` or `v22.x` (LTS)
 - **npm**: `v10.x` or higher
 - **Supabase Account**: Managed PostgreSQL instance with Supabase Auth & Storage enabled
-- **AI API Keys**: Google AI Studio API key (`GEMINI_API_KEY`) and optional Groq API key (`GROQ_API_KEY`)
+- **AI API Keys**: Groq API key (`GROQ_API_KEY`, Tier 1 Primary) and Google AI Studio API key (`GEMINI_API_KEY`, Tier 2 Fallback)
 
 ---
 
@@ -207,8 +207,8 @@ SUPABASE_ANON_KEY=<your-supabase-anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>
 ENCRYPTION_SECRET_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 CORS_ORIGIN=http://localhost:3000
-GEMINI_API_KEY=<your-google-gemini-api-key>
 GROQ_API_KEY=<your-groq-api-key>
+GEMINI_API_KEY=<your-google-gemini-api-key>
 ```
 
 Start the backend development server:

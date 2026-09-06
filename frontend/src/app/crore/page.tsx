@@ -4,7 +4,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
 import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
-import { croreApi, CroreCalculation, CroreSimulationInput } from '../../lib/api';
+import {
+  croreApi,
+  CroreCalculation,
+  CroreSimulationInput,
+  AccelerationLeverOption,
+} from '../../lib/api';
 import {
   Zap,
   RotateCcw,
@@ -13,22 +18,33 @@ import {
   Clock,
   ChevronRight,
   Info,
+  TrendingUp,
+  Target,
+  Layers,
+  ArrowRight,
+  CheckCircle2,
+  ShieldAlert,
 } from 'lucide-react';
 
 export default function CrorePage() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [calculation, setCalculation] = useState<CroreCalculation | null>(null);
+  const [canonicalState, setCanonicalState] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Interactive What-If State
+  // Active What-If Scenario Selection
+  const [selectedLeverId, setSelectedLeverId] = useState<string | null>(null);
+
+  // Interactive Sandbox What-If State
   const [simCapital, setSimCapital] = useState<number>(500000);
   const [simContribution, setSimContribution] = useState<number>(25000);
   const [simReturn, setSimReturn] = useState<number>(12);
   const [simStepUp, setSimStepUp] = useState<number>(10);
   const [simulating, setSimulating] = useState(false);
+  const [customSimResult, setCustomSimResult] = useState<CroreCalculation | null>(null);
 
-  // Active Tab for Deep Dive Drawer
+  // Active Tab for Deep Dive Section
   const [activeTab, setActiveTab] = useState<'scenarios' | 'milestones' | 'sensitivity' | 'simulator'>('scenarios');
 
   const loadStatus = useCallback(async () => {
@@ -39,6 +55,9 @@ export default function CrorePage() {
       const res = await croreApi.getStatus();
       if (res && res.calculation) {
         setCalculation(res.calculation);
+        if (res.canonical_state) {
+          setCanonicalState(res.canonical_state);
+        }
         setSimCapital(res.calculation.starting_capital || 0);
         setSimContribution(res.calculation.current_monthly_contribution || 25000);
       }
@@ -66,13 +85,18 @@ export default function CrorePage() {
       };
       const res = await croreApi.simulate(input);
       if (res) {
-        setCalculation(res);
+        setCustomSimResult(res);
       }
     } catch (err: unknown) {
       console.error('Simulation failed:', err);
     } finally {
       setSimulating(false);
     }
+  }
+
+  function handleResetToCurrentPlan() {
+    setSelectedLeverId(null);
+    setCustomSimResult(null);
   }
 
   if (authLoading) {
@@ -86,7 +110,7 @@ export default function CrorePage() {
   if (!isAuthenticated) {
     return (
       <AuthRequiredState
-        title="₹1 Crore Shortest Path Engine"
+        title="₹1 Crore Path Engine"
         description="Authenticate your session to run deterministic compounding simulations against your verified capital baseline."
       />
     );
@@ -97,62 +121,131 @@ export default function CrorePage() {
   const milestones = calculation?.milestones || [];
   const sensitivity = calculation?.sensitivity_matrix || [];
   const lever = calculation?.lever_analysis;
+  const accelerationLevers = calculation?.acceleration_levers || [];
 
-  const timeSavedMonths = (baseCase?.months_to_target && shortestPath?.months_to_target)
-    ? Math.max(0, baseCase.months_to_target - shortestPath.months_to_target)
-    : 0;
+  // Active Lever if selected
+  const activeLever: AccelerationLeverOption | undefined = accelerationLevers.find(
+    (l) => l.id === selectedLeverId
+  );
+
+  const isWhatIfActive = Boolean(activeLever || customSimResult);
+
+  // Capital & Cashflow values
+  const currentCapital = calculation?.starting_capital ?? 0;
+  const currentMonthlyContribution = calculation?.current_monthly_contribution ?? 0;
+  const currentMonthlySurplus = canonicalState?.cashflow?.monthly_surplus ?? currentMonthlyContribution;
+  const assumedReturn = calculation?.assumed_return_pct ?? baseCase?.assumed_return_pct ?? 12;
+
+  // Active Displayed Target Date & Months
+  const displayedTargetDate = activeLever?.target_date ?? (customSimResult ? customSimResult.base_case.target_date : baseCase?.target_date);
+  const displayedMonths = activeLever?.months_to_target ?? (customSimResult ? customSimResult.base_case.months_to_target : baseCase?.months_to_target);
+  const displayedYears = displayedMonths !== null && displayedMonths !== undefined ? (displayedMonths / 12).toFixed(1) : null;
+  const displayedMonthlyInv = activeLever?.monthly_contribution ?? (customSimResult ? customSimResult.current_monthly_contribution : currentMonthlyContribution);
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
-      {/* Header */}
+      {/* Header with Mode Distinction */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-            <span style={{
-              background: 'rgba(16, 185, 129, 0.1)',
-              color: '#10b981',
-              padding: '4px 10px',
-              borderRadius: '999px',
-              fontSize: '11px',
-              fontWeight: 700,
-              letterSpacing: '0.08em',
-              fontFamily: 'var(--font-mono)',
-              textTransform: 'uppercase'
-            }}>
-              Deterministic Mathematical Engine
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
+            {/* Mode Distinction Badge */}
+            {isWhatIfActive ? (
+              <span style={{
+                background: 'rgba(245, 158, 11, 0.15)',
+                color: '#d97706',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                fontFamily: 'var(--font-mono)',
+                textTransform: 'uppercase',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                <Sparkles size={12} />
+                WHAT-IF SCENARIO — NOT A GUARANTEE
+              </span>
+            ) : (
+              <span style={{
+                background: 'rgba(16, 185, 129, 0.1)',
+                color: '#10b981',
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                fontFamily: 'var(--font-mono)',
+                textTransform: 'uppercase',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                <CheckCircle2 size={12} />
+                CURRENT PLAN (VERIFIED STATE)
+              </span>
+            )}
+
             <span style={{ fontSize: '12px', color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
               Model v2.0 • Max Return Bound ≤ 15% p.a.
             </span>
           </div>
+
           <h1 style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink-primary)', margin: 0 }}>
-            ₹1 Crore Shortest Path
+            ₹1 Crore Path
           </h1>
-          <p style={{ color: 'var(--ink-muted)', fontSize: '14px', marginTop: '6px', maxWidth: '640px' }}>
-            Month-by-month compounding simulation grounded strictly in your verified ledger surplus and capital baseline.
+          <p style={{ color: 'var(--ink-muted)', fontSize: '14px', marginTop: '6px', maxWidth: '680px' }}>
+            Deterministic month-by-month compounding engine. Explore safe what-if scenarios to discover which controllable financial levers accelerate your journey.
           </p>
         </div>
 
-        <button
-          onClick={loadStatus}
-          disabled={loading}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 18px',
-            borderRadius: '8px',
-            background: 'var(--canvas-elevated)',
-            border: '1px solid var(--border-hairline)',
-            color: 'var(--ink-primary)',
-            fontSize: '13px',
-            fontWeight: 600,
-            cursor: 'pointer'
-          }}
-        >
-          <RotateCcw size={14} className={loading ? 'animate-spin' : ''} />
-          Sync Verified State
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {isWhatIfActive && (
+            <button
+              onClick={handleResetToCurrentPlan}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '10px 16px',
+                borderRadius: '8px',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#ef4444',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              <RotateCcw size={14} />
+              Reset to Current Plan
+            </button>
+          )}
+
+          <button
+            onClick={loadStatus}
+            disabled={loading}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '10px 18px',
+              borderRadius: '8px',
+              background: 'var(--canvas-elevated)',
+              border: '1px solid var(--border-hairline)',
+              color: 'var(--ink-primary)',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            <RotateCcw size={14} className={loading ? 'animate-spin' : ''} />
+            Sync Verified State
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -172,82 +265,73 @@ export default function CrorePage() {
         </div>
       )}
 
-      {/* Hero Projection Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-        {/* Base Case Target Card */}
+      {/* Active What-If Banner (When What-If is selected) */}
+      {isWhatIfActive && (
         <div style={{
-          background: 'var(--canvas-elevated)',
-          border: '1px solid var(--border-hairline)',
+          background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(245, 158, 11, 0.02) 100%)',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
           borderRadius: '12px',
-          padding: '24px',
+          padding: '18px 24px',
           display: 'flex',
-          flexDirection: 'column',
           justifyContent: 'space-between',
-          position: 'relative'
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '16px'
         }}>
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
-                Base Case (Status Quo)
-              </span>
-              <Clock size={16} color="var(--ink-muted)" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '8px',
+              background: 'rgba(245, 158, 11, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#d97706',
+              flexShrink: 0
+            }}>
+              <Sparkles size={20} />
             </div>
-            <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--ink-primary)', letterSpacing: '-0.02em', marginBottom: '4px' }}>
-              {baseCase?.target_date || 'N/A'}
-            </div>
-            <div style={{ fontSize: '14px', color: 'var(--ink-muted)' }}>
-              {baseCase?.months_to_target ? `${baseCase.months_to_target} months (${(baseCase.months_to_target / 12).toFixed(1)} years)` : 'Out of scope'}
-            </div>
-          </div>
-
-          <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-hairline)', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--ink-muted)' }}>
-            <span>SIP: ₹{(baseCase?.monthly_contribution || 0).toLocaleString('en-IN')}/mo</span>
-            <span>Return: {baseCase?.assumed_return_pct ?? 12}% p.a.</span>
-            <span>Step-up: {baseCase?.annual_step_up_pct ?? 0}%</span>
-          </div>
-        </div>
-
-        {/* Shortest Modeled Path Card (Highlighted) */}
-        <div style={{
-          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0.02) 100%)',
-          border: '1px solid rgba(16, 185, 129, 0.3)',
-          borderRadius: '12px',
-          padding: '24px',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          position: 'relative'
-        }}>
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Zap size={15} color="#10b981" />
-                <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#10b981', fontFamily: 'var(--font-mono)' }}>
-                  Fastest Modeled Path
-                </span>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#d97706', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>
+                Active Simulation: {activeLever?.label || 'Custom Sandbox Simulation'}
               </div>
-              {timeSavedMonths > 0 && (
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#10b981', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '999px' }}>
-                  {(timeSavedMonths / 12).toFixed(1)} YRS FASTER
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--ink-primary)', letterSpacing: '-0.02em', marginBottom: '4px' }}>
-              {shortestPath?.target_date || 'N/A'}
-            </div>
-            <div style={{ fontSize: '14px', color: '#10b981', fontWeight: 500 }}>
-              {shortestPath?.months_to_target ? `${shortestPath.months_to_target} months (${(shortestPath.months_to_target / 12).toFixed(1)} years)` : 'Simulated'}
+              <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--ink-primary)', marginTop: '2px' }}>
+                {activeLever
+                  ? activeLever.mathematical_impact_description
+                  : `Custom monthly investment: ₹${simContribution.toLocaleString('en-IN')}/mo at ${simReturn}% return`}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--ink-muted)', marginTop: '4px' }}>
+                Educational what-if simulation only. Not an investment guarantee or mutual fund/stock recommendation.
+              </div>
             </div>
           </div>
 
-          <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--ink-muted)' }}>
-            <span>SIP: ₹{(shortestPath?.monthly_contribution || 0).toLocaleString('en-IN')}/mo</span>
-            <span>Return: {shortestPath?.assumed_return_pct ?? 12}% p.a.</span>
-            <span>Step-up: {shortestPath?.annual_step_up_pct ?? 10}%</span>
-          </div>
+          <button
+            onClick={handleResetToCurrentPlan}
+            style={{
+              padding: '8px 14px',
+              borderRadius: '6px',
+              background: 'var(--canvas-elevated)',
+              border: '1px solid var(--border-hairline)',
+              color: 'var(--ink-primary)',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <RotateCcw size={13} />
+            Back to Current Plan
+          </button>
         </div>
+      )}
 
-        {/* ONE Next Action Card */}
+      {/* Primary Section: CURRENT POSITION & TARGET */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '20px' }}>
+        {/* Card 1: CURRENT POSITION */}
         <div style={{
           background: 'var(--canvas-elevated)',
           border: '1px solid var(--border-hairline)',
@@ -258,47 +342,337 @@ export default function CrorePage() {
           justifyContent: 'space-between'
         }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <Sparkles size={16} color="#f59e0b" />
-              <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#f59e0b', fontFamily: 'var(--font-mono)' }}>
-                ONE Next Action
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Layers size={14} />
+                CURRENT POSITION
+              </span>
+              <span style={{ fontSize: '11px', background: 'var(--canvas-surface)', padding: '3px 8px', borderRadius: '4px', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)' }}>
+                Baseline
               </span>
             </div>
-            <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--ink-primary)', marginBottom: '8px', lineHeight: 1.4 }}>
-              {calculation?.one_next_action || 'Maintain regular monthly contributions into your diversified core index portfolio.'}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+              <div>
+                <div style={{ fontSize: '12px', color: 'var(--ink-muted)', marginBottom: '4px' }}>Current Capital</div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--ink-primary)', letterSpacing: '-0.02em' }}>
+                  ₹{currentCapital.toLocaleString('en-IN')}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--ink-tertiary)', marginTop: '2px' }}>
+                  Investable portfolio assets
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '12px', color: 'var(--ink-muted)', marginBottom: '4px' }}>Monthly Surplus</div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--ink-primary)', letterSpacing: '-0.02em' }}>
+                  ₹{currentMonthlySurplus.toLocaleString('en-IN')}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--ink-tertiary)', marginTop: '2px' }}>
+                  Net cashflow per month
+                </div>
+              </div>
             </div>
-            <p style={{ fontSize: '13px', color: 'var(--ink-muted)', lineHeight: 1.5, margin: 0 }}>
-              {lever?.description || 'Your primary controllable lever is increasing monthly surplus and implementing annual step-up SIPs.'}
-            </p>
+
+            <div style={{ padding: '12px 16px', background: 'var(--canvas-surface)', borderRadius: '8px', border: '1px solid var(--border-hairline)', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ink-primary)' }}>Monthly Contribution</span>
+                <span style={{ fontSize: '15px', fontWeight: 700, color: '#10b981', fontFamily: 'var(--font-mono)' }}>
+                  ₹{currentMonthlyContribution.toLocaleString('en-IN')}/mo
+                </span>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--ink-muted)', marginTop: '4px' }}>
+                Active monthly compounding investment pace
+              </div>
+            </div>
           </div>
 
-          <div style={{ marginTop: '20px' }}>
-            <Link
-              href="/plan"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
+          <div style={{ paddingTop: '16px', borderTop: '1px solid var(--border-hairline)', fontSize: '12px', color: 'var(--ink-muted)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <span style={{ fontWeight: 600, color: 'var(--ink-secondary)' }}>Assumptions:</span>
+            <span>• Compounding: Monthly at {assumedReturn}% p.a. (factor 1 + r/12)</span>
+            <span>• Step-Up: 0% baseline (constant contribution)</span>
+            <span>• Emergency Reserve: Excluded from investable capital for safety</span>
+          </div>
+        </div>
+
+        {/* Card 2: TARGET */}
+        <div style={{
+          background: isWhatIfActive
+            ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, var(--canvas-elevated) 100%)'
+            : 'linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, var(--canvas-elevated) 100%)',
+          border: isWhatIfActive ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)',
+          borderRadius: '12px',
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between'
+        }}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <span style={{
                 fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--ink-primary)',
-                textDecoration: 'none'
-              }}
-            >
-              Configure Allocation Plan <ChevronRight size={14} />
-            </Link>
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: isWhatIfActive ? '#d97706' : '#10b981',
+                fontFamily: 'var(--font-mono)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                <Target size={14} />
+                {isWhatIfActive ? 'TARGET (WHAT-IF PROJECTION)' : 'TARGET (CURRENT PLAN)'}
+              </span>
+              <span style={{
+                fontSize: '11px',
+                background: isWhatIfActive ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                color: isWhatIfActive ? '#d97706' : '#10b981',
+                padding: '3px 8px',
+                borderRadius: '4px',
+                fontWeight: 700,
+                fontFamily: 'var(--font-mono)'
+              }}>
+                ₹1 CRORE TARGET
+              </span>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--ink-muted)', marginBottom: '4px' }}>Projected Target Date</div>
+              <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--ink-primary)', letterSpacing: '-0.02em' }}>
+                {displayedTargetDate || 'Out of 60-yr scope'}
+              </div>
+              <div style={{ fontSize: '14px', color: isWhatIfActive ? '#d97706' : '#10b981', fontWeight: 600, marginTop: '4px' }}>
+                {displayedMonths !== null && displayedMonths !== undefined
+                  ? `${displayedMonths} months (${displayedYears} years)`
+                  : 'Requires consistent monthly contribution'}
+              </div>
+            </div>
+
+            {/* Time saved comparison if scenario active */}
+            {isWhatIfActive && activeLever && activeLever.months_saved > 0 && (
+              <div style={{
+                padding: '10px 14px',
+                background: 'rgba(245, 158, 11, 0.1)',
+                border: '1px solid rgba(245, 158, 11, 0.25)',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '13px',
+                color: '#d97706',
+                fontWeight: 600
+              }}>
+                <Zap size={16} />
+                <span>Accelerates target by {activeLever.years_saved} ({activeLever.months_saved} months earlier than Current Plan)</span>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px', fontSize: '13px' }}>
+              <div style={{ background: 'var(--canvas-surface)', padding: '10px 12px', borderRadius: '6px' }}>
+                <div style={{ color: 'var(--ink-muted)', fontSize: '11px' }}>Corpus Target</div>
+                <div style={{ fontWeight: 700, color: 'var(--ink-primary)', marginTop: '2px' }}>₹1,00,00,000</div>
+              </div>
+              <div style={{ background: 'var(--canvas-surface)', padding: '10px 12px', borderRadius: '6px' }}>
+                <div style={{ color: 'var(--ink-muted)', fontSize: '11px' }}>Simulated Monthly SIP</div>
+                <div style={{ fontWeight: 700, color: 'var(--ink-primary)', marginTop: '2px' }}>
+                  ₹{displayedMonthlyInv.toLocaleString('en-IN')}/mo
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ paddingTop: '16px', borderTop: '1px solid var(--border-hairline)', fontSize: '12px', color: 'var(--ink-muted)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <span style={{ fontWeight: 600, color: 'var(--ink-secondary)' }}>Uncertainty & Model Notes:</span>
+            <span>• Nominal target: Inflation & capital gains tax are not subtracted.</span>
+            <span>• Market risk: Equity returns fluctuate month to month; returns are not guaranteed.</span>
+            <span>• Assumes continuous monthly execution without withdrawals.</span>
           </div>
         </div>
       </div>
 
-      {/* Navigation Tabs for Deep Dive */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-hairline)', paddingBottom: '8px' }}>
+      {/* ACCELERATION LEVERS SECTION */}
+      <div style={{ background: 'var(--canvas-elevated)', border: '1px solid var(--border-hairline)', borderRadius: '12px', padding: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <Zap size={18} color="#f59e0b" />
+              <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--ink-primary)', margin: 0 }}>
+                Acceleration Levers (Safe What-If Scenarios)
+              </h2>
+            </div>
+            <p style={{ color: 'var(--ink-muted)', fontSize: '13px', margin: 0 }}>
+              Each scenario is calculated deterministically using the exact same compounding equations. Click any lever to inspect its timeline impact.
+            </p>
+          </div>
+
+          {selectedLeverId && (
+            <button
+              onClick={handleResetToCurrentPlan}
+              style={{
+                fontSize: '12px',
+                fontWeight: 600,
+                color: '#ef4444',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <RotateCcw size={12} /> Clear Selected Scenario
+            </button>
+          )}
+        </div>
+
+        {/* Highlight: LARGEST MATHEMATICAL IMPACT */}
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%)',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          borderRadius: '10px',
+          padding: '16px 20px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '14px'
+        }}>
+          <TrendingUp size={20} color="#10b981" style={{ flexShrink: 0, marginTop: '2px' }} />
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
+              LARGEST MATHEMATICAL IMPACT
+            </div>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink-primary)', marginTop: '4px' }}>
+              {calculation?.largest_impact_variable || 'Increasing monthly investable cashflow by +₹10,000 (via income growth or surplus optimization) has the largest mathematical impact.'}
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--ink-muted)', marginTop: '4px', margin: '4px 0 0', lineHeight: 1.5 }}>
+              Mathematical rationale: Because compounding returns act on every accumulated rupee, expanding regular monthly investment volume by ₹10,000 provides double the timeline acceleration of a ₹5,000 change, compounding exponentially over years.
+            </p>
+          </div>
+        </div>
+
+        {/* 4 Acceleration Lever Cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 250px), 1fr))', gap: '16px' }}>
+          {accelerationLevers.map((item) => {
+            const isSelected = selectedLeverId === item.id;
+            return (
+              <div
+                key={item.id}
+                onClick={() => setSelectedLeverId(isSelected ? null : item.id)}
+                style={{
+                  background: isSelected ? 'rgba(245, 158, 11, 0.06)' : 'var(--canvas-surface)',
+                  border: isSelected ? '2px solid #f59e0b' : '1px solid var(--border-hairline)',
+                  borderRadius: '10px',
+                  padding: '18px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      background: item.is_highest_impact ? 'rgba(16, 185, 129, 0.15)' : 'var(--canvas-elevated)',
+                      color: item.is_highest_impact ? '#10b981' : 'var(--ink-muted)',
+                      textTransform: 'uppercase',
+                      fontFamily: 'var(--font-mono)'
+                    }}>
+                      {item.is_highest_impact ? 'HIGHEST IMPACT' : item.category}
+                    </span>
+
+                    {isSelected && (
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        ACTIVE <CheckCircle2 size={12} />
+                      </span>
+                    )}
+                  </div>
+
+                  <h4 style={{ margin: '0 0 6px', fontSize: '15px', fontWeight: 700, color: 'var(--ink-primary)' }}>
+                    {item.label}
+                  </h4>
+
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--ink-muted)', lineHeight: 1.4 }}>
+                    {item.mathematical_impact_description}
+                  </p>
+                </div>
+
+                <div>
+                  <div style={{ padding: '10px 12px', background: 'var(--canvas-elevated)', borderRadius: '6px', border: '1px solid var(--border-hairline)', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--ink-muted)' }}>
+                      <span>New Target:</span>
+                      <span style={{ fontWeight: 700, color: 'var(--ink-primary)' }}>{item.target_date || 'N/A'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--ink-muted)', marginTop: '4px' }}>
+                      <span>Time Saved:</span>
+                      <span style={{ fontWeight: 700, color: item.months_saved > 0 ? '#10b981' : 'var(--ink-muted)' }}>
+                        {item.months_saved > 0 ? `-${item.years_saved}` : '0 months'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      borderRadius: '6px',
+                      background: isSelected ? '#f59e0b' : 'var(--canvas-elevated)',
+                      border: isSelected ? 'none' : '1px solid var(--border-hairline)',
+                      color: isSelected ? '#ffffff' : 'var(--ink-primary)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    {isSelected ? 'Active What-If Scenario' : 'Simulate This Lever'}
+                    <ArrowRight size={12} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Never present scenarios as guarantees warning */}
+        <div style={{
+          marginTop: '18px',
+          padding: '12px 16px',
+          borderRadius: '8px',
+          background: 'var(--canvas-surface)',
+          border: '1px solid var(--border-hairline)',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px',
+          fontSize: '11px',
+          color: 'var(--ink-muted)',
+          lineHeight: 1.5
+        }}>
+          <ShieldAlert size={15} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--ink-secondary)' }} />
+          <div>
+            <strong>DISCLAIMER ON SCENARIOS & ADVISORY BOUNDARIES:</strong> What-if scenarios illustrate mathematical compounding relationships under static contribution and return assumptions. They are <strong>never guarantees</strong> of future financial performance. myCA never provides personalized stock, equity, or mutual fund buy/sell recommendations. Consult a certified financial planner for regulated investment advice.
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation Tabs for Deep Dive Drawer */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-hairline)', paddingBottom: '8px', overflowX: 'auto' }}>
         {(
           [
             { id: 'scenarios', label: '5 Scenarios Comparison' },
             { id: 'milestones', label: 'Milestones (₹1L → ₹1Cr)' },
             { id: 'sensitivity', label: 'Sensitivity Matrix' },
-            { id: 'simulator', label: 'Interactive Simulator' },
+            { id: 'simulator', label: 'Custom Sandbox Simulator' },
           ] as const
         ).map((tab) => (
           <button
@@ -313,6 +687,7 @@ export default function CrorePage() {
               fontSize: '13px',
               fontWeight: 600,
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               transition: 'all 0.15s ease'
             }}
           >
@@ -345,7 +720,7 @@ export default function CrorePage() {
               <tbody>
                 {[
                   { s: calculation.capital_only_case, tag: 'Baseline' },
-                  { s: calculation.base_case, tag: 'Status Quo' },
+                  { s: calculation.base_case, tag: 'Current Plan' },
                   { s: calculation.improved_case, tag: 'Surplus Lever' },
                   { s: calculation.accelerated_case, tag: 'Step-Up Lever' },
                   { s: calculation.shortest_modeled_path, tag: 'Fastest' },
@@ -443,7 +818,7 @@ export default function CrorePage() {
           <div style={{ padding: '20px', borderBottom: '1px solid var(--border-hairline)' }}>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>12-Cell Return & Contribution Sensitivity Matrix</h3>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--ink-muted)' }}>
-              Inspect how altering monthly investing amount and compounding rates impact your ₹1 Crore target year.
+              Inspect how altering monthly investing amount and step-up rates impact your ₹1 Crore target arrival date.
             </p>
           </div>
           <div style={{ overflowX: 'auto', padding: '16px 20px' }}>
@@ -493,12 +868,12 @@ export default function CrorePage() {
         </div>
       )}
 
-      {/* Tab 4: Interactive What-If Simulator */}
+      {/* Tab 4: Interactive What-If Sandbox */}
       {activeTab === 'simulator' && (
         <div style={{ background: 'var(--canvas-elevated)', border: '1px solid var(--border-hairline)', borderRadius: '12px', padding: '24px' }}>
           <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 600 }}>Interactive Compounding Sandbox</h3>
           <p style={{ margin: '0 0 24px', fontSize: '13px', color: 'var(--ink-muted)' }}>
-            Test custom levers. Strictly bounded by educational compounding rules (return ≤ 15% p.a.).
+            Test custom levers. Strictly bounded by educational compounding bounds (return ≤ 15% p.a.).
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginBottom: '24px' }}>

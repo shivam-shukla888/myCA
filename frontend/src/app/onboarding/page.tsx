@@ -35,11 +35,11 @@ export default function OnboardingPage() {
 
   const [data, setData] = useState<OnboardingData>({
     fullName: '',
-    monthlyIncome: 100000,
-    monthlyExpenses: 40000,
-    existingSavings: 200000,
-    existingInvestments: 500000,
-    desiredLifestyleIncome: 80000,
+    monthlyIncome: 0,
+    monthlyExpenses: 0,
+    existingSavings: 0,
+    existingInvestments: 0,
+    desiredLifestyleIncome: 0,
   });
 
   useEffect(() => {
@@ -192,7 +192,7 @@ export default function OnboardingPage() {
       <div style={{
         background: 'var(--canvas-surface)',
         border: '1px solid var(--border-hairline)',
-        padding: '32px',
+        padding: 'clamp(16px, 4vw, 32px)',
         boxShadow: '0 2px 4px rgba(0,0,0,0.03)'
       }}>
         {error && (

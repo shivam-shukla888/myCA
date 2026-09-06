@@ -22,16 +22,19 @@ export interface CanonicalFinancialState {
     formatted_income: string;
   };
   expenses: {
-    essential_monthly_expenses: number | null;
+    monthly_essential_expenses: number | null;
+    monthly_debt_obligations: number | null;
+    essential_monthly_expenses: number | null; // backward compatibility alias
+    debt_payments: number; // backward compatibility alias
     discretionary_monthly_expenses: number;
-    debt_payments: number;
     total_monthly_expenses: number | null;
     annual_expense_growth_pct: number;
     formatted_expenses: string;
     top_categories: Array<{ category: string; amount: number; percentage: number }>;
   };
   cashflow: {
-    actual_monthly_surplus: number | null;
+    monthly_surplus: number | null;
+    actual_monthly_surplus: number | null; // backward compatibility alias
     savings_rate: number | null;
     is_deficit: boolean;
     deficit_amount: number;
@@ -77,6 +80,10 @@ export class CanonicalFinanceService {
    * Builds the single canonical financial context for a user for a given month.
    * Strictly avoids inventing numbers: missing values are returned as null / explicit missing fields,
    * never silently converted to zero.
+   *
+   * Canonical Formulas:
+   * total_monthly_expenses = monthly_essential_expenses + monthly_debt_obligations
+   * monthly_surplus = monthly_net_income - total_monthly_expenses
    */
   async getCanonicalFinancialState(userId: string, targetMonth?: string): Promise<CanonicalFinancialState> {
     if (!userId) {
@@ -105,7 +112,6 @@ export class CanonicalFinanceService {
     try {
       monthlySummary = await transactionService.getMonthlySummary(userId, month);
     } catch {
-      // Non-fatal, treated as no observed transactions
       monthlySummary = null;
     }
 
@@ -145,20 +151,23 @@ export class CanonicalFinanceService {
       monthlyNetIncome = round2(Number(profile.monthly_income));
       incomeSource = 'profile_stated';
     } else if (hasObservedTransactions && monthlySummary.total_income === 0) {
-      // User has transactions recorded, but income is explicitly 0
       monthlyNetIncome = 0;
       incomeSource = 'observed_ledger';
+    } else if (profile && profile.monthly_income !== null && profile.monthly_income !== undefined && Number(profile.monthly_income) === 0) {
+      monthlyNetIncome = 0;
+      incomeSource = 'profile_stated';
     } else {
       missing_fields.push('monthly_net_income');
     }
 
     // -------------------------------------------------------------
-    // Derive Canonical Expenses
+    // Derive Canonical Expenses:
+    // Canonical Contract: total_monthly_expenses = monthly_essential_expenses + monthly_debt_obligations
     // -------------------------------------------------------------
     let totalExpenses: number | null = null;
     let essentialExpenses: number | null = null;
+    let debtObligations: number | null = null;
     let discretionaryExpenses = 0;
-    let debtPayments = profile?.monthly_debt_obligations ? round2(Number(profile.monthly_debt_obligations)) : 0;
     let expenseSource: DataSourceType = 'missing';
 
     const topCategories = (monthlySummary?.categories || []).map((c: any) => ({
@@ -170,40 +179,53 @@ export class CanonicalFinanceService {
     if (hasObservedTransactions && (monthlySummary.total_expenses > 0 || (monthlySummary.transaction_count?.expenses || 0) > 0)) {
       totalExpenses = round2(monthlySummary.total_expenses);
       expenseSource = 'observed_ledger';
+      debtObligations = profile?.monthly_debt_obligations != null ? round2(Number(profile.monthly_debt_obligations)) : 0;
       essentialExpenses = profile?.monthly_essential_expenses && profile.monthly_essential_expenses > 0
         ? round2(Number(profile.monthly_essential_expenses))
         : totalExpenses;
       discretionaryExpenses = round2(Math.max(totalExpenses - (essentialExpenses || 0), 0));
     } else if (profile && (profile.monthly_essential_expenses != null || profile.monthly_debt_obligations != null)) {
-      const ess = Number(profile.monthly_essential_expenses || 0);
-      const debt = Number(profile.monthly_debt_obligations || 0);
-      essentialExpenses = round2(ess);
-      totalExpenses = round2(ess + debt);
-      expenseSource = 'profile_stated';
-      if (ess === 0 && debt === 0) {
+      const ess = profile.monthly_essential_expenses != null ? round2(Number(profile.monthly_essential_expenses)) : null;
+      const debt = profile.monthly_debt_obligations != null ? round2(Number(profile.monthly_debt_obligations)) : null;
+
+      if (ess === null && debt === null) {
+        essentialExpenses = null;
+        debtObligations = null;
+        totalExpenses = null;
         missing_fields.push('total_monthly_expenses');
+      } else {
+        essentialExpenses = ess ?? 0;
+        debtObligations = debt ?? 0;
+        totalExpenses = round2(essentialExpenses + debtObligations);
+        expenseSource = 'profile_stated';
       }
     } else {
       missing_fields.push('total_monthly_expenses');
     }
 
     // -------------------------------------------------------------
-    // Derive Actual Monthly Surplus & Savings Rate
+    // Derive Canonical Monthly Surplus & Savings Rate:
+    // Canonical Contract: monthly_surplus = monthly_net_income - total_monthly_expenses
     // -------------------------------------------------------------
-    let actualSurplus: number | null = null;
+    let monthlySurplus: number | null = null;
     let savingsRate: number | null = null;
     let isDeficit = false;
     let deficitAmount = 0;
 
     if (monthlyNetIncome !== null && totalExpenses !== null) {
-      actualSurplus = round2(monthlyNetIncome - totalExpenses);
-      isDeficit = actualSurplus < 0;
-      deficitAmount = isDeficit ? round2(Math.abs(actualSurplus)) : 0;
+      monthlySurplus = round2(monthlyNetIncome - totalExpenses);
+      isDeficit = monthlySurplus < 0;
+      deficitAmount = isDeficit ? round2(Math.abs(monthlySurplus)) : 0;
 
       if (monthlyNetIncome > 0) {
-        savingsRate = Math.max(0, round2((actualSurplus / monthlyNetIncome) * 100));
+        savingsRate = Math.max(0, round2((monthlySurplus / monthlyNetIncome) * 100));
       } else {
         savingsRate = 0;
+      }
+    } else {
+      if (monthlyNetIncome === null) missing_fields.push('monthly_net_income');
+      if (totalExpenses === null && !missing_fields.includes('total_monthly_expenses')) {
+        missing_fields.push('total_monthly_expenses');
       }
     }
 
@@ -217,8 +239,10 @@ export class CanonicalFinanceService {
     if (existingInvestments === null) missing_fields.push('existing_investments');
 
     const targetMonths = profile?.emergency_fund_target_months || 6;
-    const baseEssentialExpense = essentialExpenses ?? (totalExpenses ?? 0);
-    const emergencyFundTarget = baseEssentialExpense > 0 ? round2(baseEssentialExpense * targetMonths) : null;
+    const baseEssentialExpense = essentialExpenses ?? totalExpenses;
+    const emergencyFundTarget = baseEssentialExpense !== null && baseEssentialExpense > 0
+      ? round2(baseEssentialExpense * targetMonths)
+      : null;
 
     let emergencyFundGap: number | null = null;
     let emergencyCoverageMonths: number | null = null;
@@ -226,11 +250,13 @@ export class CanonicalFinanceService {
 
     if (emergencyFundTarget !== null && liquidSavings !== null) {
       emergencyFundGap = round2(Math.max(emergencyFundTarget - liquidSavings, 0));
-      emergencyCoverageMonths = baseEssentialExpense > 0 ? round2(liquidSavings / baseEssentialExpense) : targetMonths;
+      emergencyCoverageMonths = baseEssentialExpense && baseEssentialExpense > 0
+        ? round2(liquidSavings / baseEssentialExpense)
+        : targetMonths;
       isEmergencyComplete = emergencyFundGap <= 0;
     }
 
-    // Investable capital: investments + excess liquid savings (if emergency fund target is met)
+    // Investable capital: investments + excess liquid savings (if emergency target met)
     let currentInvestableCapital: number | null = null;
     if (existingInvestments !== null) {
       const excessLiquid = liquidSavings !== null && emergencyFundTarget !== null
@@ -241,14 +267,13 @@ export class CanonicalFinanceService {
 
     // Monthly investment capacity: surplus if positive and emergency fund complete or partial
     let monthlyInvestmentCapacity: number | null = null;
-    if (actualSurplus !== null && actualSurplus > 0) {
+    if (monthlySurplus !== null && monthlySurplus > 0) {
       if (isEmergencyComplete) {
-        monthlyInvestmentCapacity = actualSurplus;
+        monthlyInvestmentCapacity = monthlySurplus;
       } else {
-        // Conservative 50% surplus towards wealth, remaining to emergency
-        monthlyInvestmentCapacity = round2(actualSurplus * 0.5);
+        monthlyInvestmentCapacity = round2(monthlySurplus * 0.5);
       }
-    } else if (actualSurplus !== null && actualSurplus <= 0) {
+    } else if (monthlySurplus !== null && monthlySurplus <= 0) {
       monthlyInvestmentCapacity = 0;
     }
 
@@ -259,7 +284,7 @@ export class CanonicalFinanceService {
 
     const formattedIncome = monthlyNetIncome !== null ? `₹${monthlyNetIncome.toLocaleString('en-IN')}` : 'UNKNOWN';
     const formattedExpenses = totalExpenses !== null ? `₹${totalExpenses.toLocaleString('en-IN')}` : 'UNKNOWN';
-    const formattedSurplus = actualSurplus !== null ? `₹${actualSurplus.toLocaleString('en-IN')}` : 'UNKNOWN';
+    const formattedSurplus = monthlySurplus !== null ? `₹${monthlySurplus.toLocaleString('en-IN')}` : 'UNKNOWN';
     const formattedSavingsRate = savingsRate !== null ? `${savingsRate.toFixed(2)}%` : 'UNKNOWN';
 
     return {
@@ -279,16 +304,19 @@ export class CanonicalFinanceService {
         formatted_income: formattedIncome,
       },
       expenses: {
+        monthly_essential_expenses: essentialExpenses,
+        monthly_debt_obligations: debtObligations,
         essential_monthly_expenses: essentialExpenses,
+        debt_payments: debtObligations ?? 0,
         discretionary_monthly_expenses: discretionaryExpenses,
-        debt_payments: debtPayments,
         total_monthly_expenses: totalExpenses,
         annual_expense_growth_pct: 5.0,
         formatted_expenses: formattedExpenses,
         top_categories: topCategories,
       },
       cashflow: {
-        actual_monthly_surplus: actualSurplus,
+        monthly_surplus: monthlySurplus,
+        actual_monthly_surplus: monthlySurplus,
         savings_rate: savingsRate,
         is_deficit: isDeficit,
         deficit_amount: deficitAmount,
@@ -326,7 +354,7 @@ export class CanonicalFinanceService {
         inflation_rate_pct: inflationRatePct,
         withdrawal_rate_pct: withdrawalRatePct,
       },
-      missing_fields,
+      missing_fields: Array.from(new Set(missing_fields)),
     };
   }
 }

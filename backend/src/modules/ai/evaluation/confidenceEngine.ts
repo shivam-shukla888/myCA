@@ -111,6 +111,9 @@ export class ConfidenceEngine {
         overallConfidence = Math.min(knowledgeConfidence, 0.95);
         primaryLimitingFactor = 'Verified current regulatory source.';
       }
+    } else if (context.missing_evidence && context.missing_evidence.length > 0) {
+      overallConfidence = Math.min(dataConfidence, calculationConfidence, knowledgeConfidence);
+      primaryLimitingFactor = 'Missing user financial records or statement evidence.';
     } else if (this.queryRequiresExternalKnowledge(options.query || '') || response.intent === 'TAX_QUERY' || response.intent === 'INVESTMENT_EDUCATION' || response.intent === 'GENERAL_FINANCE') {
       // Factual / educational / tax question: STRICT dependency on knowledge grounding
       if (chunksCount === 0) {

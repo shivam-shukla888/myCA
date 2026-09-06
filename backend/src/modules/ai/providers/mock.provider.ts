@@ -43,7 +43,7 @@ export class MockAIProvider implements AIProvider {
       return this.customHandler(prompt);
     }
 
-    const userInquiryMatch = prompt.match(/<user_inquiry>([\s\S]*?)<\/user_inquiry>/i);
+    const userInquiryMatch = prompt.match(/<(?:user_inquiry|untrusted_user_query)>([\s\S]*?)<\/(?:user_inquiry|untrusted_user_query)>/i);
     const userQuestion = (userInquiryMatch ? userInquiryMatch[1] : prompt).trim().toLowerCase();
     const lower = userQuestion;
 
@@ -81,15 +81,64 @@ export class MockAIProvider implements AIProvider {
     const freedomContext = extractXmlBlock('verified_financial_freedom_context');
     const affordabilityContext = extractXmlBlock('verified_affordability_context');
     const croreContext = extractXmlBlock('verified_crore_path_context');
+    const retrievedDocs = extractXmlBlock('retrieved_user_documents');
     const missingNotes = extractXmlBlock('missing_evidence_notes');
+
+    // 0A. Prohibited document / identity facts not present (e.g. passport)
+    if (lower.includes('passport') || (lower.includes('expiry') && !lower.includes('card'))) {
+      return {
+        answer: "I don't have enough verified information yet. No passport records were found in your verified documents or account.",
+        intent: 'GENERAL_FINANCE',
+        risk_level: 'LOW',
+        confidence_score: 0.25,
+        evidence: [],
+        missing_information: ['Passport document not found in verified records'],
+        disclaimer_required: false,
+        disclaimer: '',
+        human_review_required: true,
+        refusal_or_limitation: 'NOT_FOUND',
+      };
+    }
+
+    // 0B. Verified Document RAG (e.g. salary slip)
+    if (
+      lower.includes('salary slip') ||
+      (lower.includes('salary') && lower.includes('mutabik')) ||
+      (lower.includes('slip') && lower.includes('income'))
+    ) {
+      let docIncome = 95000;
+      if (Array.isArray(retrievedDocs)) {
+        for (const doc of retrievedDocs) {
+          const m = doc.summary?.match(/"net_income":\s*(\d+)/);
+          if (m) docIncome = parseInt(m[1], 10);
+        }
+      }
+      return {
+        answer: `Aapki confirmed salary slip ke mutabik monthly income ₹${docIncome.toLocaleString('en-IN')} hai. Yeh verified document records se confirm kiya gaya hai.`,
+        intent: 'DOCUMENT_ANALYSIS',
+        risk_level: 'LOW',
+        confidence_score: 0.98,
+        evidence: [
+          {
+            source_type: 'document',
+            claim: `Verified salary slip records net monthly income of ₹${docIncome.toLocaleString('en-IN')}.`,
+          },
+        ],
+        missing_information: [],
+        disclaimer_required: false,
+        disclaimer: '',
+        human_review_required: false,
+        refusal_or_limitation: null,
+      };
+    }
 
     // 1. Missing information check (only trigger if the user's specific inquiry lacks the required data)
     if (
       (userQuestion.includes('emergency fund') && !allocationContext && userQuestion.includes('missing')) ||
-      ((!monthlyContext || (monthlyContext.income === 0 && monthlyContext.expenses === 0)) && missingNotes && missingNotes.length > 0 && (lower.includes('surplus') || lower.includes('savings rate') || lower.includes('1 crore') || lower.includes('mera') || lower.includes('meri')))
+      ((!monthlyContext || (monthlyContext.income === 0 && monthlyContext.expenses === 0)) && (missingNotes && missingNotes.length > 0 || !monthlyContext) && (lower.includes('surplus') || lower.includes('savings rate') || lower.includes('1 crore') || lower.includes('mera') || lower.includes('meri') || lower.includes('improve')))
     ) {
       return {
-        answer: "I don't have enough verified information about your income or expenses to answer this accurately. Please set up your financial profile and ensure your monthly income and expenses are recorded.",
+        answer: "I don't have enough verified information yet.",
         intent: 'PERSONAL_FINANCE',
         risk_level: 'LOW',
         confidence_score: 0.35,
@@ -200,14 +249,65 @@ export class MockAIProvider implements AIProvider {
         };
       }
 
-      // 3C. "How much am I saving?" or "What is my current monthly surplus and savings rate?"
+      // 3C-1. "Mera monthly surplus kitna hai?"
+      if (
+        lower.includes('monthly surplus kitna') ||
+        lower.includes('mera surplus kitna') ||
+        lower.includes('mera monthly surplus') ||
+        (lower.includes('surplus') && (lower.includes('kitna') || lower.includes('mera')))
+      ) {
+        return {
+          answer: `ANSWER: Aapka monthly surplus ₹${sur.toLocaleString('en-IN')} hai.\n\nWHY: Yeh aapki verified monthly aamdani (₹${inc.toLocaleString('en-IN')}) me se kul kharche (₹${exp.toLocaleString('en-IN')}) ghatane ke baad bachi hui authoritative bachat hai.\n\nDATA USED: Income ₹${inc.toLocaleString('en-IN')}, Expenses ₹${exp.toLocaleString('en-IN')}.\n\nNEXT ACTION: ${emergencyGap > 0 ? `Is surplus ko apne ₹${emergencyGap.toLocaleString('en-IN')} emergency buffer gap ko bharne me lagayein.` : 'Surplus ko apne target goals aur wealth acceleration me deploy karein.'}`,
+          intent: 'PERSONAL_FINANCE',
+          risk_level: 'LOW',
+          confidence_score: 0.95,
+          evidence: [
+            {
+              source_type: 'monthly_summary',
+              source_id: monthlyContext.month || 'current_month',
+              claim: `Verified monthly surplus ₹${sur} and savings rate ${rate}%.`,
+            },
+          ],
+          missing_information: [],
+          disclaimer_required: false,
+          disclaimer: '',
+          human_review_required: false,
+          refusal_or_limitation: null,
+        };
+      }
+
+      // 3C-2. "Meri savings rate kya hai?"
+      if (
+        lower.includes('savings rate kya hai') ||
+        lower.includes('meri savings rate') ||
+        (lower.includes('savings rate') && (lower.includes('kya') || lower.includes('meri')))
+      ) {
+        return {
+          answer: `ANSWER: Aapki savings rate ${rate}% hai.\n\nWHY: Yeh darshata hai ki aap apni monthly income (₹${inc.toLocaleString('en-IN')}) ka kitna hissa surplus (₹${sur.toLocaleString('en-IN')}) ke roop me bacha rahe hain.\n\nDATA USED: Monthly Income ₹${inc.toLocaleString('en-IN')}, Monthly Surplus ₹${sur.toLocaleString('en-IN')}.\n\nNEXT ACTION: ${rate < 20 ? 'Discretionary spending audit karein taaki savings rate 20% ya usse adhik ho sake.' : 'Is disciplined savings rate ko banaye rakhein aur structured allocation follow karein.'}`,
+          intent: 'PERSONAL_FINANCE',
+          risk_level: 'LOW',
+          confidence_score: 0.95,
+          evidence: [
+            {
+              source_type: 'monthly_summary',
+              source_id: monthlyContext.month || 'current_month',
+              claim: `Verified savings rate ${rate}% from monthly surplus ₹${sur}.`,
+            },
+          ],
+          missing_information: [],
+          disclaimer_required: false,
+          disclaimer: '',
+          human_review_required: false,
+          refusal_or_limitation: null,
+        };
+      }
+
+      // 3C-3. General "How much am I saving?"
       if (
         (lower.includes('how much am i saving') ||
           lower.includes('how much am i saving this month') ||
           lower.includes('surplus') ||
-          lower.includes('savings rate') ||
-          lower.includes('mera surplus') ||
-          lower.includes('meri savings rate')) &&
+          lower.includes('savings rate')) &&
         !lower.includes('review') &&
         !lower.includes('pehle') &&
         !lower.includes('share market') &&
@@ -218,7 +318,7 @@ export class MockAIProvider implements AIProvider {
         !lower.includes('ek crore')
       ) {
         return {
-          answer: `This month, you are saving ₹${sur.toLocaleString('en-IN')} from a verified income of ₹${inc.toLocaleString('en-IN')} after expenses of ₹${exp.toLocaleString('en-IN')}.\n\nThis translates to a **${rate}% savings rate**.\n\n**Next Action:** ${emergencyGap > 0 ? `Allocate ₹${sur.toLocaleString('en-IN')} toward your emergency buffer gap of ₹${emergencyGap.toLocaleString('en-IN')}.` : 'Deploy surplus according to your target allocation plan.'}`,
+          answer: `ANSWER: This month, you are saving ₹${sur.toLocaleString('en-IN')} from a verified income of ₹${inc.toLocaleString('en-IN')} after expenses of ₹${exp.toLocaleString('en-IN')}.\n\nWHY: This represents a disciplined ${rate}% savings rate across your verified cashflows.\n\nDATA USED: Income ₹${inc.toLocaleString('en-IN')}, Expenses ₹${exp.toLocaleString('en-IN')}, Surplus ₹${sur.toLocaleString('en-IN')}.\n\nNEXT ACTION: ${emergencyGap > 0 ? `Allocate ₹${sur.toLocaleString('en-IN')} toward your emergency buffer gap of ₹${emergencyGap.toLocaleString('en-IN')}.` : 'Deploy surplus according to your target allocation plan.'}`,
           intent: 'PERSONAL_FINANCE',
           risk_level: 'LOW',
           confidence_score: 0.95,
@@ -259,10 +359,28 @@ export class MockAIProvider implements AIProvider {
         };
       }
 
-      // 3E. "What should I improve next month?" / "What should I improve?"
-      if (lower.includes('what should i improve')) {
+      // 3E. "Is month kya improve karu?" / "What should I improve?"
+      if (
+        lower.includes('what should i improve') ||
+        lower.includes('is month kya improve karu') ||
+        lower.includes('kya improve karu') ||
+        lower.includes('kya improve karein')
+      ) {
+        const highestActionMatch = prompt.match(/<calculation metric="highest_priority_action" result="([^"]+)"/i);
+        let highAction: any = null;
+        if (highestActionMatch) {
+          try {
+            highAction = JSON.parse(highestActionMatch[1].replace(/&quot;/g, '"'));
+          } catch {}
+        }
+
+        const actionTitle = highAction?.title || `Discretionary spend audit on ${topCat}`;
+        const actionWhy = highAction?.why_it_matters || `${topCat} represents your largest spending pressure point at ₹${topCatAmt.toLocaleString('en-IN')}.`;
+        const actionData = highAction?.data_used || `Expenses ₹${exp.toLocaleString('en-IN')}, Top Category: ${topCat} (₹${topCatAmt.toLocaleString('en-IN')}), Surplus ₹${sur.toLocaleString('en-IN')}.`;
+        const actionCta = highAction?.cta || `Set a spending limit for ${topCat} and allocate this month's ₹${sur.toLocaleString('en-IN')} surplus directly to emergency buffer.`;
+
         return {
-          answer: `Here is your targeted improvement plan based on this month's data:\n\n1. **Contain Spending on ${topCat}:** It represents your largest spending outflow at ₹${topCatAmt.toLocaleString('en-IN')}.\n2. **Emergency Cushion:** Continue routing surplus toward closing your ₹${emergencyGap.toLocaleString('en-IN')} emergency reserve gap.\n3. **Savings Rate Target:** Protect your current ${rate}% savings rate by keeping discretionary expenses in check.\n\n**Next Action:** Set a spending limit for ${topCat} and allocate this month's ₹${sur.toLocaleString('en-IN')} surplus directly to your emergency fund.`,
+          answer: `ANSWER: Is mahine aapka primary improvement focus hai: **${actionTitle}**.\n\nWHY: ${actionWhy}\n\nDATA USED: ${actionData}\n\nNEXT ACTION: **Next Action:** ${actionCta}`,
           intent: 'PERSONAL_FINANCE',
           risk_level: 'LOW',
           confidence_score: 0.95,
@@ -397,10 +515,9 @@ export class MockAIProvider implements AIProvider {
         const nextAction = cc.one_next_action || 'Maintain consistent monthly investing';
 
         const sur = monthlyContext?.surplus ?? cc.current_monthly_contribution ?? 0;
-        const surplusIntro = sur > 0 ? `Your verified monthly surplus is **₹${Number(sur).toLocaleString('en-IN')}**.\n\n` : '';
 
         return {
-          answer: `${surplusIntro}Based on your deterministic financial numbers, your estimated ₹1 Crore date is **${baseDate}** (${baseYears} years at ₹${Number(cc.current_monthly_contribution || 0).toLocaleString('en-IN')}/month contribution).\n\n**Fastest Modeled Path:** You can accelerate this timeline to **${shortestDate}**.\n\n**Highest-Impact Controllable Lever:** ${rec}.\n\n**ONE Next Action:** ${nextAction}\n\n*Note: These are deterministic mathematical projections based on an assumed ${cc.base_case?.assumed_return_pct ?? 12}% p.a. compounding rate, not guaranteed returns.*`,
+          answer: `ANSWER: Aapke current financial trajectory ke anusaar, Base case estimated ₹1 Crore date **${baseDate}** (${baseYears} saal) tak projected hai.\n\nWHY: Yeh projection ₹${Number(sur).toLocaleString('en-IN')}/month contribution aur ${cc.base_case?.assumed_return_pct ?? 12}% p.a. deterministic compounding assumptions par aadharit hai.\n\nDATA USED: Starting Capital ₹${Number(cc.starting_capital || 0).toLocaleString('en-IN')}, Monthly Contribution ₹${Number(sur).toLocaleString('en-IN')}, Modeled Rate ${cc.base_case?.assumed_return_pct ?? 12}%.\n\nNEXT ACTION: ${nextAction} (${rec}). Fastest modeled path timeline ko **${shortestDate}** tak accelerate kar sakta hai.`,
           intent: 'PERSONAL_FINANCE',
           risk_level: 'LOW',
           confidence_score: 0.96,
@@ -411,7 +528,7 @@ export class MockAIProvider implements AIProvider {
             },
             {
               source_type: 'monthly_summary',
-              claim: `Starting capital ₹${cc.starting_capital}, monthly contribution ₹${cc.current_monthly_contribution}.`,
+              claim: `Starting capital ₹${cc.starting_capital}, monthly contribution ₹${sur}.`,
             },
           ],
           missing_information: [],
@@ -423,24 +540,28 @@ export class MockAIProvider implements AIProvider {
       }
     }
 
-    // 4C. "Emergency fund kitna hona chahiye?"
+    // 4C. "Meri emergency fund position kya hai?" / "Emergency fund kitna hona chahiye?"
     if (
+      lower.includes('emergency fund position') ||
+      lower.includes('meri emergency fund') ||
       lower.includes('emergency fund kitna') ||
       lower.includes('kitna hona chahiye') ||
-      lower.includes('how much emergency fund')
+      lower.includes('how much emergency fund') ||
+      lower.includes('emergency position')
     ) {
       const target = allocationContext?.emergency_fund_target ?? 300000;
       const current = allocationContext?.emergency_fund_current ?? 0;
       const gap = allocationContext?.emergency_gap ?? target;
+      const statusText = gap <= 0 ? 'fully funded hai' : `₹${gap.toLocaleString('en-IN')} ka gap baaki hai`;
       return {
-        answer: `Aapka emergency fund target ₹${target.toLocaleString('en-IN')} hai (3 se 6 mahine ke zaroori kharche). Current savings: ₹${current.toLocaleString('en-IN')}, Gap: ₹${gap.toLocaleString('en-IN')}.\n\n**Rule of Thumb:** Emergency buffer achanak aane wale medical ya cashflow shocks ke waqt aapke long-term investments ko surakshit rakhta hai taaki aapko karz na lena pade.`,
+        answer: `ANSWER: Aapka emergency fund abhi ${statusText} (Current: ₹${current.toLocaleString('en-IN')}, Target: ₹${target.toLocaleString('en-IN')}).\n\nWHY: 3 se 6 mahine ke anivarya kharchon ka emergency liquid buffer financial shocks ke samay aapke investments ko tootne se bachata hai taaki karz na lena pade.\n\nDATA USED: Target ₹${target.toLocaleString('en-IN')}, Current Savings ₹${current.toLocaleString('en-IN')}, Remaining Gap ₹${gap.toLocaleString('en-IN')}.\n\nNEXT ACTION: ${gap > 0 ? `Apne monthly surplus se ₹${Math.min(gap, monthlyContext?.surplus || gap).toLocaleString('en-IN')} liquid savings me daal kar is gap ko close karein.` : 'Emergency buffer complete hai; ab surplus ko long-term wealth acceleration me lagayein.'}`,
         intent: 'PERSONAL_FINANCE',
         risk_level: 'LOW',
         confidence_score: 0.95,
         evidence: [
           {
             source_type: 'allocation_plan',
-            claim: `Emergency target ₹${target}, gap ₹${gap}.`,
+            claim: `Emergency target ₹${target}, current ₹${current}, gap ₹${gap}.`,
           },
         ],
         missing_information: [],

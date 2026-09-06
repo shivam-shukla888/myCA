@@ -8,9 +8,16 @@ export interface DocumentRecord extends CreateDocumentInput {
   id: string;
   user_id: string;
   storage_path: string;
+  source_type: 'DOCUMENT' | 'IMAGE' | 'VIDEO';
+  processing_status: 'pending' | 'processing' | 'completed' | 'failed';
+  ocr_status: 'not_applicable' | 'pending' | 'processing' | 'completed' | 'failed';
+  verification_status: 'unverified' | 'draft_ready' | 'user_confirmed' | 'rejected';
+  confirmed_at?: string | null;
+  title?: string | null;
   extraction_status: 'pending' | 'processing' | 'completed' | 'failed';
   extraction_confidence?: number | null;
   extracted_data?: any;
+  file_hash?: string | null;
   uploaded_at: string;
   created_at: string;
   updated_at: string;
@@ -20,6 +27,34 @@ export interface DocumentRecord extends CreateDocumentInput {
 
 // In-memory store strictly for development/testing when running in offline/mock context
 const inMemoryDocuments = new Map<string, DocumentRecord>();
+
+function normalizeDocumentRecord(row: any): DocumentRecord {
+  let sourceType: 'DOCUMENT' | 'IMAGE' | 'VIDEO' =
+    row.source_type ||
+    row.extracted_data?.source_type ||
+    (row.mime_type?.startsWith('video/') ? 'VIDEO' : row.mime_type?.startsWith('image/') ? 'IMAGE' : 'DOCUMENT');
+
+  let ocrStatus: 'not_applicable' | 'pending' | 'processing' | 'completed' | 'failed' =
+    row.ocr_status ||
+    row.extracted_data?.ocr_status ||
+    (sourceType === 'VIDEO' ? 'not_applicable' : row.extraction_status === 'completed' ? 'completed' : 'pending');
+
+  let verificationStatus: 'unverified' | 'draft_ready' | 'user_confirmed' | 'rejected' =
+    row.verification_status ||
+    row.extracted_data?.verification_status ||
+    (row.extracted_data?.confirmed_at ? 'user_confirmed' : row.extracted_data?.extraction_status === 'draft_ready' || row.extraction_status === 'completed' ? 'draft_ready' : 'unverified');
+
+  return {
+    ...row,
+    source_type: sourceType,
+    processing_status: row.processing_status || row.extracted_data?.processing_status || 'completed',
+    ocr_status: ocrStatus,
+    verification_status: verificationStatus,
+    confirmed_at: row.confirmed_at || row.extracted_data?.confirmed_at || null,
+    title: row.title || row.extracted_data?.title || null,
+    file_hash: row.file_hash || row.extracted_data?.file_hash || null,
+  };
+}
 
 export class DocumentService {
   async createDocumentMetadata(userId: string, input: CreateDocumentInput): Promise<DocumentRecord> {
@@ -39,11 +74,33 @@ export class DocumentService {
     const sanitizedFileName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const storagePath = `${userId}/${documentId}/${sanitizedFileName}`;
 
+    // Determine canonical source type
+    let sourceType: 'DOCUMENT' | 'IMAGE' | 'VIDEO' = input.source_type || 'DOCUMENT';
+    if (!input.source_type) {
+      if (input.mime_type.startsWith('video/')) {
+        sourceType = 'VIDEO';
+      } else if (input.mime_type.startsWith('image/')) {
+        sourceType = 'IMAGE';
+      } else {
+        sourceType = 'DOCUMENT';
+      }
+    }
+
+    const ocrStatus = sourceType === 'VIDEO' ? 'not_applicable' : 'pending';
+    const verificationStatus = 'unverified';
+    const processingStatus = 'completed';
+
     const now = new Date().toISOString();
     const record: DocumentRecord = {
       ...input,
       id: documentId,
       user_id: userId,
+      source_type: sourceType,
+      processing_status: processingStatus,
+      ocr_status: ocrStatus,
+      verification_status: verificationStatus,
+      confirmed_at: null,
+      title: input.title || null,
       storage_path: storagePath,
       extraction_status: 'pending',
       extraction_confidence: null,
@@ -67,20 +124,33 @@ export class DocumentService {
         record.upload_url = signedUpload.signedUrl;
       }
 
+      // Preserve metadata in extracted_data for forward/backward compatibility
+      const metaEnvelope = {
+        source_type: sourceType,
+        processing_status: processingStatus,
+        ocr_status: ocrStatus,
+        verification_status: verificationStatus,
+        title: input.title || null,
+      };
+
+      // Try inserting with all fields
+      let dbInsertPayload: any = {
+        id: record.id,
+        user_id: record.user_id,
+        file_name: record.file_name,
+        file_type: record.file_type,
+        file_size_bytes: record.file_size_bytes,
+        storage_path: record.storage_path,
+        mime_type: record.mime_type,
+        document_type: record.document_type,
+        extraction_status: record.extraction_status,
+        financial_year: record.financial_year || null,
+        extracted_data: metaEnvelope,
+      };
+
       const { data, error } = await supabase
         .from('documents')
-        .insert({
-          id: record.id,
-          user_id: record.user_id,
-          file_name: record.file_name,
-          file_type: record.file_type,
-          file_size_bytes: record.file_size_bytes,
-          storage_path: record.storage_path,
-          mime_type: record.mime_type,
-          document_type: record.document_type,
-          extraction_status: record.extraction_status,
-          financial_year: record.financial_year || null,
-        })
+        .insert(dbInsertPayload)
         .select()
         .single();
 
@@ -89,14 +159,19 @@ export class DocumentService {
           throw new AppError(`Document metadata persistence failed: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
         }
       } else if (data) {
-        const saved = {
+        const normalized = normalizeDocumentRecord({
           ...data,
           upload_url: record.upload_url,
-        } as DocumentRecord;
+          title: record.title,
+          source_type: record.source_type,
+          ocr_status: record.ocr_status,
+          verification_status: record.verification_status,
+        });
+
         if (!isProduction) {
-          inMemoryDocuments.set(record.id, saved);
+          inMemoryDocuments.set(record.id, normalized);
         }
-        return saved;
+        return normalized;
       }
     } catch (err) {
       if (err instanceof AppError) throw err;
@@ -139,7 +214,35 @@ export class DocumentService {
           throw new AppError(`Failed to list documents: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
         }
       } else if (data) {
-        return { documents: data as DocumentRecord[], total: count !== null && count !== undefined ? count : data.length };
+        let normalizedList = data.map(normalizeDocumentRecord);
+
+        // Apply client filters if specified
+        if (query.source_type) {
+          normalizedList = normalizedList.filter((d) => d.source_type === query.source_type);
+        }
+        if (query.verification_status) {
+          normalizedList = normalizedList.filter((d) => d.verification_status === query.verification_status);
+        }
+
+        if (!isProduction) {
+          const userInMem = Array.from(inMemoryDocuments.values()).filter((d) => d.user_id === userId);
+          if (data.length === 0 && userInMem.length > 0) {
+            let filtered = userInMem.map(normalizeDocumentRecord);
+            if (query.document_type) filtered = filtered.filter((d) => d.document_type === query.document_type);
+            if (query.source_type) filtered = filtered.filter((d) => d.source_type === query.source_type);
+            if (query.verification_status) filtered = filtered.filter((d) => d.verification_status === query.verification_status);
+            if (query.financial_year) filtered = filtered.filter((d) => d.financial_year === query.financial_year);
+            filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            return { documents: filtered.slice(offset, offset + limit), total: filtered.length };
+          }
+          // Merge in-memory updates
+          const mergedData = normalizedList.map((d: any) => {
+            const inMem = inMemoryDocuments.get(d.id);
+            return inMem ? normalizeDocumentRecord({ ...d, ...inMem }) : d;
+          });
+          return { documents: mergedData, total: count !== null && count !== undefined ? count : mergedData.length };
+        }
+        return { documents: normalizedList, total: count !== null && count !== undefined ? count : normalizedList.length };
       }
     } catch (err) {
       if (err instanceof AppError) throw err;
@@ -154,8 +257,10 @@ export class DocumentService {
 
     // Filter in-memory by user_id (development/test mode only)
     const userDocs = Array.from(inMemoryDocuments.values()).filter((d) => d.user_id === userId);
-    let filtered = userDocs;
+    let filtered = userDocs.map(normalizeDocumentRecord);
     if (query.document_type) filtered = filtered.filter((d) => d.document_type === query.document_type);
+    if (query.source_type) filtered = filtered.filter((d) => d.source_type === query.source_type);
+    if (query.verification_status) filtered = filtered.filter((d) => d.verification_status === query.verification_status);
     if (query.financial_year) filtered = filtered.filter((d) => d.financial_year === query.financial_year);
 
     filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -186,12 +291,18 @@ export class DocumentService {
           throw new AppError('Access denied: You do not have permission to view this document', 403, 'FORBIDDEN');
         }
 
+        const inMem = !isProduction ? inMemoryDocuments.get(id) : null;
+        const merged = normalizeDocumentRecord({
+          ...anyDoc,
+          ...(inMem || {}),
+        });
+
         const { data: signedDownload } = await supabase.storage
           .from('user-documents')
           .createSignedUrl(anyDoc.storage_path, 900);
 
         return {
-          ...anyDoc,
+          ...merged,
           download_url: signedDownload?.signedUrl,
         } as DocumentRecord;
       } else if (isProduction) {
@@ -218,7 +329,7 @@ export class DocumentService {
     }
 
     return {
-      ...record,
+      ...normalizeDocumentRecord(record),
       download_url: `https://mock-storage.local/download/${record.storage_path}?expires=900`,
     };
   }
@@ -291,6 +402,10 @@ export class DocumentService {
       extraction_status: 'pending' | 'processing' | 'completed' | 'failed';
       extraction_confidence?: number | null;
       extracted_data: any;
+      file_hash?: string | null;
+      ocr_status?: 'not_applicable' | 'pending' | 'processing' | 'completed' | 'failed';
+      verification_status?: 'unverified' | 'draft_ready' | 'user_confirmed' | 'rejected';
+      confirmed_at?: string | null;
     }
   ): Promise<DocumentRecord> {
     if (!userId) {
@@ -305,35 +420,72 @@ export class DocumentService {
     }
 
     const now = new Date().toISOString();
+    const ocrStatus = updates.ocr_status || (updates.extraction_status === 'completed' ? 'completed' : existing.ocr_status);
+    const verificationStatus = updates.verification_status || (updates.confirmed_at ? 'user_confirmed' : existing.verification_status);
+
+    const mergedExtractedData = {
+      ...(existing.extracted_data || {}),
+      ...(updates.extracted_data || {}),
+      ocr_status: ocrStatus,
+      verification_status: verificationStatus,
+      confirmed_at: updates.confirmed_at !== undefined ? updates.confirmed_at : existing.confirmed_at,
+      file_hash: updates.file_hash !== undefined ? updates.file_hash : existing.file_hash,
+    };
+
     const updatedRecord: DocumentRecord = {
       ...existing,
       extraction_status: updates.extraction_status,
       extraction_confidence: updates.extraction_confidence !== undefined ? updates.extraction_confidence : existing.extraction_confidence,
-      extracted_data: updates.extracted_data,
+      extracted_data: mergedExtractedData,
+      ocr_status: ocrStatus,
+      verification_status: verificationStatus,
+      confirmed_at: updates.confirmed_at !== undefined ? updates.confirmed_at : existing.confirmed_at,
+      file_hash: updates.file_hash !== undefined ? updates.file_hash : existing.file_hash,
       updated_at: now,
     };
 
     try {
       const supabase = getSupabaseAdminClient();
-      const { data, error } = await supabase
-        .from('documents')
-        .update({
-          extraction_status: updates.extraction_status,
-          extraction_confidence: updates.extraction_confidence !== undefined ? updates.extraction_confidence : null,
-          extracted_data: updates.extracted_data,
-          updated_at: now,
-        })
-        .eq('id', id)
-        .eq('user_id', userId)
-        .select()
-        .single();
+      const basePayload: any = {
+        extraction_status: updates.extraction_status,
+        extraction_confidence: updates.extraction_confidence !== undefined ? updates.extraction_confidence : null,
+        extracted_data: mergedExtractedData,
+        updated_at: now,
+      };
+
+      let data: any = null;
+      let error: any = null;
+
+      if (updates.file_hash) {
+        const attempt = await supabase
+          .from('documents')
+          .update({ ...basePayload, file_hash: updates.file_hash })
+          .eq('id', id)
+          .eq('user_id', userId)
+          .select()
+          .single();
+        data = attempt.data;
+        error = attempt.error;
+      }
+
+      if (error || !updates.file_hash) {
+        const fallbackAttempt = await supabase
+          .from('documents')
+          .update(basePayload)
+          .eq('id', id)
+          .eq('user_id', userId)
+          .select()
+          .single();
+        data = fallbackAttempt.data;
+        error = fallbackAttempt.error;
+      }
 
       if (error && isProduction) {
         throw new AppError(`Document extraction update failed: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
       }
 
       if (data) {
-        const saved = { ...existing, ...data } as DocumentRecord;
+        const saved = normalizeDocumentRecord({ ...existing, ...data, file_hash: updates.file_hash || data.file_hash });
         if (!isProduction) {
           inMemoryDocuments.set(id, saved);
         }
@@ -352,6 +504,40 @@ export class DocumentService {
 
     inMemoryDocuments.set(id, updatedRecord);
     return updatedRecord;
+  }
+
+  async findDuplicateByHash(userId: string, fileHash: string, excludeDocId?: string): Promise<DocumentRecord | null> {
+    const isProduction = env.NODE_ENV === 'production';
+    try {
+      const supabase = getSupabaseAdminClient();
+      const { data: existingDocs } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (existingDocs && existingDocs.length > 0) {
+        const found = existingDocs.find((doc: any) => {
+          if (excludeDocId && doc.id === excludeDocId) return false;
+          const hash = doc.file_hash || doc.extracted_data?.file_hash;
+          return hash === fileHash;
+        });
+        if (found) return normalizeDocumentRecord(found);
+      }
+    } catch (err) {
+      if (isProduction) {
+        throw new AppError('Database query failed during document deduplication check', 500, 'DATABASE_QUERY_FAILED');
+      }
+    }
+
+    // In-memory fallback for test and non-production environments
+    const userDocs = Array.from(inMemoryDocuments.values()).filter((d) => d.user_id === userId);
+    const inMemFound = userDocs.find((d) => {
+      if (excludeDocId && d.id === excludeDocId) return false;
+      const hash = d.file_hash || d.extracted_data?.file_hash;
+      return hash === fileHash;
+    });
+
+    return inMemFound ? normalizeDocumentRecord(inMemFound) : null;
   }
 }
 

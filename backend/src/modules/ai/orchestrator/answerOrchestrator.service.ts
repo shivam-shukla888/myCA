@@ -9,6 +9,8 @@ import { safetyPolicyEngine } from '../classification/safetyPolicy.js';
 import { retrievalService, RetrievedContext } from '../retrieval/retrieval.service.js';
 import { financialContextService } from '../financialContext.service.js';
 import { croreService } from '../../crore/crore.service.js';
+import { canonicalFinanceService } from '../../finance/canonicalFinance.service.js';
+import { actionService } from '../../action/action.service.js';
 import { ragRetrievalEngine } from '../../knowledge/retrieval/ragRetrievalEngine.js';
 import { RetrievalCategory, RetrievalResult } from '../../knowledge/retrieval/rag.schema.js';
 import { contextBuilder } from './contextBuilder.js';
@@ -18,6 +20,7 @@ import { confidenceEngine } from '../evaluation/confidenceEngine.js';
 import { securityGuard } from './securityGuard.js';
 import { auditLogger } from '../audit/auditLogger.js';
 import { aiObservability, AIErrorCategory } from '../observability/aiObservability.js';
+import { StateCode } from '../../../util/stateCodes.js';
 import {
   OrchestratedAnswerRequest,
   OrchestratedAnswerResponse,
@@ -143,6 +146,7 @@ export class AnswerOrchestratorService {
         provider_used: effectiveProvider.getModelName(),
         conversation_id: conversationId,
         timestamp,
+        stateCode: StateCode.ERROR,
       };
 
       aiObservability.logPipelineEvent({
@@ -169,6 +173,67 @@ export class AnswerOrchestratorService {
       return extractionRefusal;
     }
 
+    // Stage 2B: Adversarial Attempt Check (Alter surplus, invent transactions, guaranteed returns, stock tips, bypass safety)
+    const adversarialCheck = securityGuard.detectAdversarialAttempt(query);
+    if (adversarialCheck.isAdversarial && adversarialCheck.refusalAnswer) {
+      const refusalAnswer = adversarialCheck.refusalAnswer;
+      const { statements, breakdown } = statementClassifier.classifyResponse(refusalAnswer);
+      const isStockOrJailbreak =
+        adversarialCheck.category === 'STOCK_RECOMMENDATION' ||
+        adversarialCheck.category === 'BYPASS_SAFETY' ||
+        adversarialCheck.category === 'GUARANTEED_RETURNS';
+
+      const isStock =
+        adversarialCheck.category === 'STOCK_RECOMMENDATION' ||
+        query.toLowerCase().includes('stock') ||
+        query.toLowerCase().includes('shares') ||
+        query.toLowerCase().includes('mutual fund');
+
+      const adversarialRefusal: OrchestratedAnswerResponse = {
+        answer: refusalAnswer,
+        intent: isStock ? 'UNSUPPORTED_HIGH_RISK' : 'GENERAL_FINANCE',
+        risk_level: isStockOrJailbreak ? 'CRITICAL' : 'HIGH',
+        confidence_score: 1.0,
+        reasoning_breakdown: breakdown,
+        statements,
+        evidence: [],
+        missing_information: [],
+        disclaimer_required: isStockOrJailbreak,
+        disclaimer: isStockOrJailbreak
+          ? 'Personal AI CA provides educational and analytical financial assistance, not SEBI-registered investment advice.'
+          : '',
+        human_review_required: false,
+        refusal_or_limitation: adversarialCheck.reason || 'Adversarial query refused by security governance policy.',
+        provider_used: effectiveProvider.getModelName(),
+        conversation_id: conversationId,
+        timestamp,
+        stateCode: StateCode.ERROR,
+      };
+
+      aiObservability.logPipelineEvent({
+        request_id: conversationId,
+        user_id: userId,
+        intent: isStock ? 'UNSUPPORTED_HIGH_RISK' : 'SYSTEM_SECURITY',
+        risk_level: isStockOrJailbreak ? 'CRITICAL' : 'HIGH',
+        retrieved_source_ids: [],
+        retrieval_confidence: 0,
+        calculation_ids: [],
+        verification_status: 'NOT_APPLICABLE',
+        validator_status: 'PASS',
+        confidence_level: 'high',
+        provider: effectiveProvider.getModelName(),
+        model: effectiveProvider.getModelName(),
+        latency_ms: Date.now() - startTime,
+        retry_count: 0,
+        error_category: 'SAFETY_BLOCK',
+        failure_reason: adversarialCheck.reason || 'Adversarial query refused.',
+        timestamp,
+      });
+
+      await this.persistMessages(userId, conversationId, query, refusalAnswer);
+      return adversarialRefusal;
+    }
+
     const policyRefusal = safetyPolicyEngine.evaluatePreGenerationPolicy(classification);
     if (policyRefusal) {
       const { statements, breakdown } = statementClassifier.classifyResponse(policyRefusal.answer);
@@ -188,6 +253,7 @@ export class AnswerOrchestratorService {
         provider_used: effectiveProvider.getModelName(),
         conversation_id: conversationId,
         timestamp,
+        stateCode: StateCode.ERROR,
       };
 
       aiObservability.logPipelineEvent({
@@ -223,8 +289,72 @@ export class AnswerOrchestratorService {
     }
 
     // -------------------------------------------------------------------------
-    // STAGE 3: RETRIEVE USER FINANCIAL CONTEXT (Deterministic Engine)
+    // STAGE 3: CANONICAL FINANCIAL STATE & CONTEXT RETRIEVAL
     // -------------------------------------------------------------------------
+    const canonicalState = await canonicalFinanceService.getCanonicalFinancialState(
+      userId,
+      request.targetMonth
+    );
+
+    const isFinancialNumberQuestion =
+      /\b(surplus|savings\s*rate|income|expenses?|kharcha|bachat|kamai|1\s*crore|1cr|1\s*cr|ek\s*crore|emergency\s*fund|emergency\s*position|improve|kya\s*improve|kitna\s*hai|kya\s*hai|kab\s*banaunga)\b/i.test(query) ||
+      classification.intent === 'PERSONAL_FINANCE' ||
+      (classification.intent as string) === 'SAVINGS_ALLOCATION';
+
+    const isUnknownData =
+      canonicalState.data_status.income_source === 'missing' ||
+      canonicalState.income.monthly_net_income === null ||
+      canonicalState.expenses.total_monthly_expenses === null ||
+      (!canonicalState.data_status.has_observed_transactions && !canonicalState.data_status.has_financial_profile);
+
+    if (isFinancialNumberQuestion && isUnknownData) {
+      const unknownAnswer = "I don't have enough verified information yet.";
+      const { statements, breakdown } = statementClassifier.classifyResponse(unknownAnswer);
+      const unknownResponse: OrchestratedAnswerResponse = {
+        answer: unknownAnswer,
+        intent: classification.intent,
+        risk_level: 'LOW',
+        confidence_score: 0.35,
+        reasoning_breakdown: breakdown,
+        statements,
+        evidence: [],
+        verified_facts: [],
+        deterministic_calculations: {},
+        missing_information: ['Verified financial baseline (income and expenses) is required.'],
+        disclaimer_required: false,
+        disclaimer: '',
+        human_review_required: true,
+        refusal_or_limitation: 'UNKNOWN_FINANCIAL_DATA',
+        provider_used: effectiveProvider.getModelName(),
+        conversation_id: conversationId,
+        timestamp,
+        stateCode: StateCode.UNKNOWN,
+      };
+
+      aiObservability.logPipelineEvent({
+        request_id: conversationId,
+        user_id: userId,
+        intent: classification.intent,
+        risk_level: 'LOW',
+        retrieved_source_ids: [],
+        retrieval_confidence: 0,
+        calculation_ids: [],
+        verification_status: 'NOT_APPLICABLE',
+        validator_status: 'PASS',
+        confidence_level: 'low',
+        provider: effectiveProvider.getModelName(),
+        model: effectiveProvider.getModelName(),
+        latency_ms: Date.now() - startTime,
+        retry_count: 0,
+        error_category: 'INSUFFICIENT_EVIDENCE',
+        failure_reason: 'Unknown financial data; returned deterministic fail-closed state.',
+        timestamp,
+      });
+
+      await this.persistMessages(userId, conversationId, query, unknownAnswer);
+      return unknownResponse;
+    }
+
     const retrievedContext: RetrievedContext = await retrievalService.retrieveContext(
       userId,
       query,
@@ -255,13 +385,23 @@ export class AnswerOrchestratorService {
     // STAGE 5: DETERMINISTIC CALCULATIONS & ₹1 CRORE INTEGRATION
     // -------------------------------------------------------------------------
     const deterministicCalculations: Record<string, any> = {
-      income: financialContext.current_month.income,
-      expenses: financialContext.current_month.expenses,
-      surplus: financialContext.current_month.surplus,
-      savings_rate: `${financialContext.current_month.savings_rate.toFixed(2)}%`,
+      income: canonicalState.income.monthly_net_income ?? financialContext.current_month.income,
+      expenses: canonicalState.expenses.total_monthly_expenses ?? financialContext.current_month.expenses,
+      surplus: canonicalState.cashflow.monthly_surplus ?? financialContext.current_month.surplus,
+      savings_rate: canonicalState.cashflow.savings_rate != null
+        ? `${canonicalState.cashflow.savings_rate.toFixed(2)}%`
+        : `${financialContext.current_month.savings_rate.toFixed(2)}%`,
+      income_source: canonicalState.data_status.income_source,
+      expense_source: canonicalState.data_status.expense_source,
     };
 
-    if (financialContext.allocation) {
+    if (canonicalState.capital_and_savings) {
+      deterministicCalculations.emergency_fund_target = canonicalState.capital_and_savings.emergency_fund_target;
+      deterministicCalculations.emergency_fund_current = canonicalState.capital_and_savings.liquid_savings;
+      deterministicCalculations.emergency_fund_gap = canonicalState.capital_and_savings.emergency_fund_gap;
+      deterministicCalculations.emergency_coverage_months = canonicalState.capital_and_savings.emergency_coverage_months;
+      deterministicCalculations.is_emergency_complete = canonicalState.capital_and_savings.is_emergency_complete;
+    } else if (financialContext.allocation) {
       deterministicCalculations.emergency_fund_target = financialContext.allocation.emergency_fund_target;
       deterministicCalculations.emergency_fund_gap = financialContext.allocation.emergency_gap;
     }
@@ -269,6 +409,19 @@ export class AnswerOrchestratorService {
     if (financialContext.affordability) {
       deterministicCalculations.affordability_verdict = financialContext.affordability.verdict;
       deterministicCalculations.months_of_surplus_needed = financialContext.affordability.months_of_surplus_needed;
+    }
+
+    const isImproveQuery =
+      /\b(improve|kya\s*improve|kya\s*karu|action|next\s*action|kahan\s*dhyaan\s*du)\b/i.test(query);
+    let highestPriorityAction: any = null;
+    if (isImproveQuery) {
+      try {
+        const actionPlan = await actionService.generateActionPlan(userId, request.targetMonth || canonicalState.month);
+        highestPriorityAction = actionPlan.highest_priority_action;
+        deterministicCalculations.highest_priority_action = highestPriorityAction;
+      } catch {
+        // safe non-blocking
+      }
     }
 
     let croreAnalysis: any = null;
@@ -366,7 +519,59 @@ export class AnswerOrchestratorService {
         return true;
       });
 
-      if (verifiedChunk) {
+      // Market Intelligence Grounding Check (Gold, Inflation, FX, Indices)
+      const isMarketFactQuery = /\b(gold\s*price|silver\s*price|cpi|inflation|usd\s*inr|usd\/inr|exchange\s*rate|sensex|nifty|today('?s)?\s*gold|market\s*status)\b/i.test(queryLower);
+      if (isMarketFactQuery) {
+        try {
+          const { marketService } = await import('../../market/market.service.js');
+          const summary = await marketService.getMarketSummary();
+          let matchedFact: string | null = null;
+          let matchedSource = 'Personal CA Live Market Intelligence';
+
+          if (queryLower.includes('gold')) {
+            const g24 = summary.gold.find((g) => g.metric === 'GOLD_24K');
+            const g22 = summary.gold.find((g) => g.metric === 'GOLD_22K');
+            if (g24 && !g24.is_stale) {
+              matchedFact = `Gold 24K: ${g24.display_value} / 10g; Gold 22K: ${g22?.display_value || 'N/A'} / 10g (Source: ${g24.source}, As of: ${g24.observed_at})`;
+              matchedSource = g24.source;
+            }
+          } else if (queryLower.includes('inflation') || queryLower.includes('cpi')) {
+            if (summary.inflation && !summary.inflation.is_stale) {
+              matchedFact = `India CPI Headline Inflation: ${summary.inflation.display_value} for period ${summary.inflation.observed_period} (Source: ${summary.inflation.source}, Freshness: MONTHLY, Published: ${summary.inflation.published_at})`;
+              matchedSource = summary.inflation.source;
+            }
+          } else if (queryLower.includes('usd') || queryLower.includes('exchange') || queryLower.includes('dollar')) {
+            const usd = summary.fx.find((f) => f.metric === 'USD_INR');
+            if (usd && !usd.is_stale) {
+              matchedFact = `USD/INR Reference Rate: ${usd.display_value} (Source: ${usd.source}, As of: ${usd.observed_at})`;
+              matchedSource = usd.source;
+            }
+          } else if (queryLower.includes('nifty') || queryLower.includes('sensex') || queryLower.includes('market status')) {
+            const nifty = summary.indices.find((i) => i.metric === 'NIFTY_50');
+            const sensex = summary.indices.find((i) => i.metric === 'SENSEX');
+            matchedFact = `NIFTY 50: ${nifty?.display_value || 'N/A'} (${nifty?.change ? (nifty.change > 0 ? '+' : '') + nifty.change : '0'}); SENSEX: ${sensex?.display_value || 'N/A'}; Market Status: ${summary.market_status}`;
+            matchedSource = 'NSE / BSE Reference Feed';
+          }
+
+          if (matchedFact) {
+            currentFactStatus = {
+              required: true,
+              isVerified: true,
+              factType: 'MARKET_INTELLIGENCE',
+              sourceTitle: matchedSource,
+              sourceAuthority: 1,
+              details: matchedFact,
+              status: 'VERIFIED',
+            };
+          }
+        } catch (e) {
+          console.warn('[AnswerOrchestrator] Market fact resolution error:', e);
+        }
+      }
+
+      if (currentFactStatus.isVerified) {
+        // Already verified via market grounding
+      } else if (verifiedChunk) {
         currentFactStatus = {
           required: true,
           isVerified: true,
@@ -389,7 +594,10 @@ export class AnswerOrchestratorService {
     // FAIL-CLOSED: If current regulatory or tax verification was required but no Tier 1/2 verified chunk exists,
     // NEVER allow LLM to invent an answer from general memory. Fail closed immediately.
     if (isCurrentFactRequired && !currentFactStatus.isVerified) {
-      const refusalAnswer = "I don't have enough verified, authoritative information to answer this current regulatory or statutory question accurately. Under MyCA safety policy, statutory claims must be backed by official Tier 1/2 sources. Please consult the official Income Tax Department (incometax.gov.in), RBI (rbi.org.in), or SEBI (sebi.gov.in) portal.";
+      const isMarketQuery = /\b(gold\s*price|silver\s*price|cpi|inflation|usd\s*inr|usd\/inr|exchange\s*rate|sensex|nifty|today('?s)?\s*gold|market\s*status)\b/i.test(query);
+      const refusalAnswer = isMarketQuery
+        ? "I don't have verified live data for that right now. Under MyCA safety policy, current market facts require verified sources. Please check the Live Market Intelligence desk in your Vault or configure a verified market provider."
+        : "I don't have enough verified, authoritative information to answer this current regulatory or statutory question accurately. Under MyCA safety policy, statutory claims must be backed by official Tier 1/2 sources. Please consult the official Income Tax Department (incometax.gov.in), RBI (rbi.org.in), or SEBI (sebi.gov.in) portal.";
 
       const mandatoryDisclaimer = safetyPolicyEngine.getMandatoryDisclaimer(classification.intent);
       const disclaimerText = mandatoryDisclaimer.required
@@ -438,6 +646,8 @@ export class AnswerOrchestratorService {
         provider_used: effectiveProvider.getModelName(),
         conversation_id: conversationId,
         timestamp,
+        stateCode: StateCode.ERROR,
+        verification_status: 'INSUFFICIENT_EVIDENCE',
       };
 
       aiObservability.logPipelineEvent({
@@ -472,6 +682,7 @@ export class AnswerOrchestratorService {
       query,
       intent: classification.intent,
       financialContext,
+      documents: retrievedContext.documents,
       knowledgeResult,
       currentFactStatus,
       deterministicCalculations,
@@ -543,6 +754,60 @@ export class AnswerOrchestratorService {
       validated.confidence_score < 0.60
     ) {
       validated.human_review_required = true;
+    }
+
+    // Stage 8.1: Enforce Deterministic Financial Number Authority (AI must not override deterministic values)
+    if (canonicalState && !isUnknownData) {
+      const qLower = query.toLowerCase();
+      // 1. Surplus
+      if (
+        (qLower.includes('surplus kitna') || qLower.includes('mera surplus') || qLower.includes('mera monthly surplus')) &&
+        canonicalState.cashflow.monthly_surplus != null
+      ) {
+        const canonicalSurplus = canonicalState.cashflow.monthly_surplus;
+        const formattedCanonical = `₹${canonicalSurplus.toLocaleString('en-IN')}`;
+        if (!validated.answer.includes(formattedCanonical) && !validated.answer.includes(String(canonicalSurplus))) {
+          const emergencyGap = canonicalState.capital_and_savings.emergency_fund_gap ?? 0;
+          validated.answer = `ANSWER: Aapka monthly surplus ${formattedCanonical} hai.\n\nWHY: Yeh aapki verified monthly aamdani (${canonicalState.income.formatted_income}) me se kul kharche (${canonicalState.expenses.formatted_expenses}) ghatane ke baad bachi hui authoritative bachat hai.\n\nDATA USED: Income ${canonicalState.income.formatted_income}, Expenses ${canonicalState.expenses.formatted_expenses} (${canonicalState.data_status.income_source === 'observed_ledger' ? 'Observed Ledger' : 'Stated Baseline'}).\n\nNEXT ACTION: ${emergencyGap > 0 ? `Is surplus ko apne ₹${emergencyGap.toLocaleString('en-IN')} emergency buffer gap ko bharne me lagayein.` : 'Surplus ko apne target goals aur wealth acceleration me deploy karein.'}`;
+        }
+      }
+
+      // 2. Savings Rate
+      if (
+        (qLower.includes('savings rate kya hai') || qLower.includes('meri savings rate')) &&
+        canonicalState.cashflow.savings_rate != null
+      ) {
+        const canonicalRate = canonicalState.cashflow.savings_rate;
+        const formattedRate = `${canonicalRate.toFixed(2)}%`;
+        const roundedRate = `${Math.round(canonicalRate)}%`;
+        if (!validated.answer.includes(formattedRate) && !validated.answer.includes(roundedRate)) {
+          validated.answer = `ANSWER: Aapki savings rate ${formattedRate} hai.\n\nWHY: Yeh darshata ki aap apni monthly income ka kitna pratishat surplus ke roop me bacha rahe hain.\n\nDATA USED: Monthly Income ${canonicalState.income.formatted_income}, Monthly Surplus ${canonicalState.cashflow.formatted_surplus}.\n\nNEXT ACTION: ${canonicalRate < 20 ? 'Discretionary spending audit karein taaki savings rate 20% ya usse adhik ho sake.' : 'Is disciplined savings rate ko banaye rakhein aur structured allocation follow karein.'}`;
+        }
+      }
+
+      // 3. Emergency fund position
+      if (
+        (qLower.includes('emergency fund position') || qLower.includes('meri emergency fund')) &&
+        canonicalState.capital_and_savings.emergency_fund_target != null
+      ) {
+        const target = canonicalState.capital_and_savings.emergency_fund_target;
+        const current = canonicalState.capital_and_savings.liquid_savings ?? 0;
+        const gap = canonicalState.capital_and_savings.emergency_fund_gap ?? target;
+        const statusText = gap <= 0 ? 'fully funded hai' : `₹${gap.toLocaleString('en-IN')} ka gap baaki hai`;
+        if (!validated.answer.includes(`₹${target.toLocaleString('en-IN')}`) && !validated.answer.includes(String(target))) {
+          validated.answer = `ANSWER: Aapka emergency fund abhi ${statusText} (Current: ₹${current.toLocaleString('en-IN')}, Target: ₹${target.toLocaleString('en-IN')}).\n\nWHY: 3 se 6 mahine ka emergency liquid buffer financial shocks ke samay aapke investments ko tootne se bachata hai.\n\nDATA USED: Target ₹${target.toLocaleString('en-IN')}, Current Savings ₹${current.toLocaleString('en-IN')}, Remaining Gap ₹${gap.toLocaleString('en-IN')}.\n\nNEXT ACTION: ${gap > 0 ? `Monthly surplus se ₹${gap.toLocaleString('en-IN')} ka gap close karein.` : 'Emergency buffer complete hai; ab surplus ko long-term wealth me deploy karein.'}`;
+        }
+      }
+
+      // 4. Improve query
+      if (
+        (qLower.includes('is month kya improve karu') || qLower.includes('kya improve karu')) &&
+        highestPriorityAction
+      ) {
+        if (!validated.answer.includes(highestPriorityAction.title)) {
+          validated.answer = `ANSWER: Is mahine aapka primary improvement focus hai: **${highestPriorityAction.title}**.\n\nWHY: ${highestPriorityAction.why_it_matters}\n\nDATA USED: ${highestPriorityAction.data_used}\n\nNEXT ACTION: **Next Action:** ${highestPriorityAction.cta}`;
+        }
+      }
     }
 
     // Stage 8.5: Zero-Trust Output Secret Sanitization
@@ -619,9 +884,11 @@ export class AnswerOrchestratorService {
       disclaimer: validated.disclaimer,
       human_review_required: validated.human_review_required,
       refusal_or_limitation: validated.refusal_or_limitation,
-      provider_used: this.activeProvider.getModelName(),
+      provider_used: effectiveProvider.getModelName(),
       conversation_id: conversationId,
       timestamp,
+      stateCode: validated.refusal_or_limitation ? StateCode.INSUFFICIENT_EVIDENCE : StateCode.SUCCESS,
+      verification_status: currentFactStatus.isVerified ? 'VERIFIED' : (currentFactStatus.status || 'UNVERIFIED'),
     };
   }
 
@@ -640,7 +907,7 @@ export class AnswerOrchestratorService {
 
   private checkIfCurrentFactRequired(query: string, intent: IntentCategory): boolean {
     if (intent === 'TAX_QUERY') return true;
-    return /\b(sebi|rbi|dicgc|income\s*tax|80c|80d|87a|115bac|standard\s*deduction|tax\s*slab|tax\s*rate|repo\s*rate|statutory\s*limit|regulatory\s*threshold|circular|regulation|regulations|master\s*direction|notification|amendment|official\s*rate|fee\s*cap|deposit\s*insurance|property\s*tax|municipal\s*tax|rebate)\b/i.test(
+    return /\b(sebi|rbi|dicgc|income\s*tax|80c|80d|87a|115bac|standard\s*deduction|tax\s*slab|tax\s*rate|repo\s*rate|statutory\s*limit|regulatory\s*threshold|circular|regulation|regulations|master\s*direction|notification|amendment|official\s*rate|fee\s*cap|deposit\s*insurance|property\s*tax|municipal\s*tax|rebate|gold\s*price|cpi|inflation|usd\s*inr|usd\/inr|exchange\s*rate|sensex|nifty|today('?s)?\s*gold|market\s*status)\b/i.test(
       query
     );
   }

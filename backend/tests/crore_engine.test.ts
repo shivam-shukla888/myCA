@@ -215,6 +215,68 @@ async function runCroreEngineTests() {
   const reqSip = calculateRequiredMonthlySIP(10000000, 0, 120, 12.0); // 10 years (120 months)
   assert(reqSip > 40000 && reqSip < 50000, `TEST 18: Required SIP to reach ₹1 Cr in 10 years at 12% is ~₹43k (got ₹${reqSip})`, reqSip);
 
+  // 19. Acceleration Levers Regression Tests
+  assert(Array.isArray(fullAnalysis.acceleration_levers), 'TEST 19A: Acceleration levers array returned', fullAnalysis.acceleration_levers);
+  assert(fullAnalysis.acceleration_levers.length === 4, 'TEST 19B: Exactly 4 standard acceleration levers provided', fullAnalysis.acceleration_levers.length);
+
+  const plus5k = fullAnalysis.acceleration_levers.find(l => l.id === 'plus_5k_surplus')!;
+  const plus10k = fullAnalysis.acceleration_levers.find(l => l.id === 'plus_10k_surplus')!;
+  const minus5kExp = fullAnalysis.acceleration_levers.find(l => l.id === 'minus_5k_expense')!;
+  const plus10kInc = fullAnalysis.acceleration_levers.find(l => l.id === 'plus_10k_income')!;
+
+  assert(plus5k !== undefined, 'TEST 19C: +₹5,000 monthly surplus lever exists', plus5k);
+  assert(plus10k !== undefined, 'TEST 19D: +₹10,000 monthly surplus lever exists', plus10k);
+  assert(minus5kExp !== undefined, 'TEST 19E: ₹5,000 lower monthly expense lever exists', minus5kExp);
+  assert(plus10kInc !== undefined, 'TEST 19F: ₹10,000 higher monthly income lever exists', plus10kInc);
+
+  // Mathematical equivalence of cashflow impact
+  assert(plus5k.months_to_target === minus5kExp.months_to_target, 'TEST 20A: +₹5k surplus and -₹5k expense have identical timeline impact', {
+    plus5k: plus5k.months_to_target,
+    minus5kExp: minus5kExp.months_to_target,
+  });
+  assert(plus10k.months_to_target === plus10kInc.months_to_target, 'TEST 20B: +₹10k surplus and +₹10k income have identical timeline impact', {
+    plus10k: plus10k.months_to_target,
+    plus10kInc: plus10kInc.months_to_target,
+  });
+
+  // Strict monotonic improvement: +10k accelerates faster than +5k
+  assert(plus10k.months_to_target! < plus5k.months_to_target!, 'TEST 20C: +₹10k accelerates target more than +₹5k', {
+    plus10kMonths: plus10k.months_to_target,
+    plus5kMonths: plus5k.months_to_target,
+  });
+  assert(plus10k.months_saved > plus5k.months_saved, 'TEST 20D: +₹10k saves strictly more months than +₹5k', {
+    plus10kSaved: plus10k.months_saved,
+    plus5kSaved: plus5k.months_saved,
+  });
+
+  // Highest mathematical impact indicator
+  assert(plus10k.is_highest_impact === true, 'TEST 21A: +₹10k surplus is flagged as highest impact lever', plus10k.is_highest_impact);
+  assert(plus10kInc.is_highest_impact === true, 'TEST 21B: +₹10k income is flagged as highest impact lever', plus10kInc.is_highest_impact);
+  assert(plus5k.is_highest_impact === false, 'TEST 21C: +₹5k surplus is not highest impact when +₹10k is present', plus5k.is_highest_impact);
+
+  // Largest impact variable narrative
+  assert(fullAnalysis.largest_impact_variable.includes('10,000'), 'TEST 22A: largest_impact_variable identifies +₹10,000 cashflow lever', fullAnalysis.largest_impact_variable);
+  assert(fullAnalysis.largest_impact_variable.includes('largest mathematical impact'), 'TEST 22B: largest_impact_variable states mathematical impact clearly', fullAnalysis.largest_impact_variable);
+
+  // 23. Edge Case: Levers with Already Achieved Capital
+  const achievedAnalysis = calculateCroreShortestPath({
+    startingCapital: 10000000,
+    currentMonthlyContribution: 25000,
+    assumedAnnualReturnPct: 12.0,
+  });
+  assert(achievedAnalysis.is_already_achieved === true, 'TEST 23A: Already achieved correctly flagged', achievedAnalysis.is_already_achieved);
+  assert(achievedAnalysis.acceleration_levers.every(l => l.months_saved === 0), 'TEST 23B: Zero months saved when already achieved', achievedAnalysis.acceleration_levers);
+
+  // 24. Edge Case: Zero Monthly Contribution with Capital
+  const zeroContributionAnalysis = calculateCroreShortestPath({
+    startingCapital: 1000000, // ₹10L
+    currentMonthlyContribution: 0,
+    assumedAnnualReturnPct: 12.0,
+  });
+  const zeroPlus5k = zeroContributionAnalysis.acceleration_levers.find(l => l.id === 'plus_5k_surplus')!;
+  assert(zeroPlus5k.months_to_target !== null, 'TEST 24A: +₹5k surplus calculates valid timeline from zero contribution', zeroPlus5k.months_to_target);
+  assert(zeroPlus5k.months_saved > 0, 'TEST 24B: +₹5k surplus saves months vs zero contribution', zeroPlus5k.months_saved);
+
   console.log(`\n========================================`);
   console.log(`CRORE ENGINE TESTS: ${passed} PASSED, ${failed} FAILED`);
   console.log(`========================================\n`);

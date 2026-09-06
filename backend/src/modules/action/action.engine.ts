@@ -10,6 +10,7 @@ import {
   RankedGoalActionItem,
   UserActionOverride,
   ActionFreedomComparison,
+  HighestPriorityAction,
 } from './action.schema.js';
 
 export interface ActionEngineInput {
@@ -238,6 +239,21 @@ export function buildFinancialActionPlan(input: ActionEngineInput): ActionPlan {
 
     const rankedGoals = rankGoals(goals, month, overrides);
 
+    const highestPriorityAction = determineHighestPriorityAction({
+      safeIncome,
+      safeExpenses,
+      monthlySurplus,
+      isDeficit,
+      emergencyFund,
+      emergencyAlloc: 0,
+      monthlyDebtObligations: Number(profile.monthly_debt_obligations || 0),
+      bufferAlloc: 0,
+      rankedGoals,
+      wealthAlloc: 0,
+      freedomStatus,
+      largestExpenseCategory,
+    });
+
     return {
       month,
       monthly_income: safeIncome,
@@ -261,6 +277,7 @@ export function buildFinancialActionPlan(input: ActionEngineInput): ActionPlan {
       primary_summary: isDeficit
         ? `Deficit of ₹${deficitAmount.toLocaleString('en-IN')}. All investment and discretionary goal allocations paused to preserve liquid solvency.`
         : `Zero monthly surplus. Cashflow is fully absorbed by current expenses.`,
+      highest_priority_action: highestPriorityAction,
     };
   }
 
@@ -434,6 +451,21 @@ export function buildFinancialActionPlan(input: ActionEngineInput): ActionPlan {
 
   const primarySummary = `This month's verified surplus of ₹${monthlySurplus.toLocaleString('en-IN')} was prioritized: Emergency Reserve (₹${emergencyAlloc.toLocaleString('en-IN')}), Goals (₹${goalsAlloc.toLocaleString('en-IN')}), Long-Term Wealth (₹${wealthAlloc.toLocaleString('en-IN')}), and Buffer (₹${bufferAlloc.toLocaleString('en-IN')}).`;
 
+  const highestPriorityAction = determineHighestPriorityAction({
+    safeIncome,
+    safeExpenses,
+    monthlySurplus,
+    isDeficit: false,
+    emergencyFund,
+    emergencyAlloc,
+    monthlyDebtObligations: debtObligations,
+    bufferAlloc,
+    rankedGoals,
+    wealthAlloc,
+    freedomStatus,
+    largestExpenseCategory,
+  });
+
   return {
     month,
     monthly_income: safeIncome,
@@ -454,5 +486,303 @@ export function buildFinancialActionPlan(input: ActionEngineInput): ActionPlan {
     user_override_applied: Boolean(overrides && Object.keys(overrides).length > 0),
     user_overrides: overrides,
     primary_summary: primarySummary,
+    highest_priority_action: highestPriorityAction,
   };
 }
+
+export function determineHighestPriorityAction(params: {
+  safeIncome: number;
+  safeExpenses: number;
+  monthlySurplus: number;
+  isDeficit: boolean;
+  emergencyFund: {
+    emergency_fund_target: number;
+    existing_liquid_savings: number;
+    emergency_fund_gap: number;
+    coverage_months: number;
+    target_months: number;
+    is_complete: boolean;
+  };
+  emergencyAlloc: number;
+  monthlyDebtObligations: number;
+  bufferAlloc: number;
+  rankedGoals: RankedGoalActionItem[];
+  wealthAlloc: number;
+  freedomStatus?: ActionEngineInput['freedomStatus'];
+  largestExpenseCategory?: ActionEngineInput['largestExpenseCategory'];
+}): HighestPriorityAction {
+  const {
+    safeIncome,
+    safeExpenses,
+    monthlySurplus,
+    isDeficit,
+    emergencyFund,
+    emergencyAlloc,
+    monthlyDebtObligations,
+    bufferAlloc,
+    rankedGoals,
+    wealthAlloc,
+    freedomStatus,
+    largestExpenseCategory,
+  } = params;
+
+  // PRIORITY 1: DEFICIT
+  if (isDeficit || monthlySurplus < 0) {
+    const deficitAmount = round2(Math.abs(monthlySurplus));
+    const catNote = largestExpenseCategory
+      ? ` Your largest expenditure category was ${largestExpenseCategory.category} at ₹${largestExpenseCategory.amount.toLocaleString('en-IN')}.`
+      : '';
+
+    return {
+      id: 'highest_action_deficit',
+      title: 'Eliminate Monthly Cashflow Deficit',
+      priority_type: 'P0_DEFICIT',
+      priority_rank: 1,
+      why_it_matters:
+        'When monthly expenses exceed incoming income, liquid reserves are consumed each month and debt risk compounds. Eliminating this deficit is the prerequisite before allocating funds to goals or investments.',
+      exact_data_supporting_it: {
+        monthly_income: safeIncome,
+        monthly_expenses: safeExpenses,
+        monthly_surplus: -deficitAmount,
+        is_deficit: true,
+        deficit_amount: deficitAmount,
+        emergency_fund_target: emergencyFund.emergency_fund_target,
+        existing_liquid_savings: emergencyFund.existing_liquid_savings,
+        emergency_fund_gap: emergencyFund.emergency_fund_gap,
+        monthly_debt_obligations: monthlyDebtObligations,
+        largest_expense_category: largestExpenseCategory,
+      },
+      expected_measurable_effect: `Your current deficit is ₹${deficitAmount.toLocaleString('en-IN')}. Reducing non-essential expenses by ₹${deficitAmount.toLocaleString('en-IN')}/month will bring your monthly cashflow to break-even (₹0) and halt liquid reserve depletion.${catNote}`,
+      cta: {
+        label: 'Audit Spending & Cut Deficit',
+        destination: '/ledger',
+        action_type: 'NAVIGATE',
+      },
+      confidence_source: {
+        data_source: 'OBSERVED_LEDGER',
+        confidence_score: 1.0,
+        supporting_fields: ['monthly_net_income', 'total_monthly_expenses', 'monthly_surplus'],
+        calculation_reference: `Total Expenses (₹${safeExpenses.toLocaleString('en-IN')}) - Income (₹${safeIncome.toLocaleString('en-IN')}) = Deficit (₹${deficitAmount.toLocaleString('en-IN')})`,
+      },
+    };
+  }
+
+  // PRIORITY 2: EMERGENCY-FUND GAP
+  if (emergencyFund.emergency_fund_gap > 0) {
+    const allocPerMonth =
+      emergencyAlloc > 0
+        ? emergencyAlloc
+        : monthlySurplus > 0
+        ? Math.min(monthlySurplus, emergencyFund.emergency_fund_gap)
+        : 0;
+
+    const monthsToClose =
+      allocPerMonth > 0
+        ? Math.ceil(emergencyFund.emergency_fund_gap / allocPerMonth)
+        : emergencyFund.target_months;
+
+    const effectText =
+      allocPerMonth > 0
+        ? `Your current surplus is ₹${monthlySurplus.toLocaleString('en-IN')}. Allocating ₹${allocPerMonth.toLocaleString('en-IN')}/month to your emergency fund would close the ₹${emergencyFund.emergency_fund_gap.toLocaleString('en-IN')} remaining gap in approximately ${monthsToClose} month${monthsToClose === 1 ? '' : 's'}.`
+        : `Your current surplus is ₹0. Reallocating ₹${round2(emergencyFund.emergency_fund_gap / Math.max(emergencyFund.target_months, 1)).toLocaleString('en-IN')}/month from discretionary spending is needed to close your ₹${emergencyFund.emergency_fund_gap.toLocaleString('en-IN')} safety buffer gap.`;
+
+    return {
+      id: 'highest_action_emergency_gap',
+      title: 'Fund Emergency Safety Reserve',
+      priority_type: 'P1_EMERGENCY_GAP',
+      priority_rank: 1,
+      why_it_matters:
+        'An incomplete emergency reserve leaves your household exposed to unexpected disruptions, risking reliance on high-interest borrowing if emergencies strike.',
+      exact_data_supporting_it: {
+        monthly_income: safeIncome,
+        monthly_expenses: safeExpenses,
+        monthly_surplus: monthlySurplus,
+        is_deficit: false,
+        emergency_fund_target: emergencyFund.emergency_fund_target,
+        existing_liquid_savings: emergencyFund.existing_liquid_savings,
+        emergency_fund_gap: emergencyFund.emergency_fund_gap,
+        coverage_months: emergencyFund.coverage_months,
+        target_months: emergencyFund.target_months,
+        monthly_debt_obligations: monthlyDebtObligations,
+        allocated_amount: allocPerMonth,
+      },
+      expected_measurable_effect: effectText,
+      cta: {
+        label: 'Allocate to Emergency Reserve',
+        destination: '/plan',
+        action_type: 'NAVIGATE',
+      },
+      confidence_source: {
+        data_source: 'STATED_BASELINE',
+        confidence_score: 1.0,
+        supporting_fields: ['monthly_surplus', 'emergency_fund_gap', 'existing_liquid_savings'],
+        calculation_reference: `Target (₹${emergencyFund.emergency_fund_target.toLocaleString('en-IN')}) - Liquid (₹${emergencyFund.existing_liquid_savings.toLocaleString('en-IN')}) = Gap (₹${emergencyFund.emergency_fund_gap.toLocaleString('en-IN')})`,
+      },
+    };
+  }
+
+  // PRIORITY 3: HIGH-COST / URGENT OBLIGATIONS
+  if (monthlyDebtObligations > 0) {
+    const dti = safeIncome > 0 ? ((monthlyDebtObligations / safeIncome) * 100).toFixed(1) : '0';
+
+    return {
+      id: 'highest_action_debt',
+      title: 'Retire High-Cost Debt Obligations',
+      priority_type: 'P2_HIGH_COST_OBLIGATIONS',
+      priority_rank: 1,
+      why_it_matters:
+        'Servicing and retiring fixed monthly debt commitments prevents compounding interest charges and permanently increases your disposable monthly surplus.',
+      exact_data_supporting_it: {
+        monthly_income: safeIncome,
+        monthly_expenses: safeExpenses,
+        monthly_surplus: monthlySurplus,
+        is_deficit: false,
+        emergency_fund_target: emergencyFund.emergency_fund_target,
+        existing_liquid_savings: emergencyFund.existing_liquid_savings,
+        emergency_fund_gap: 0,
+        monthly_debt_obligations: monthlyDebtObligations,
+        debt_to_income_pct: dti,
+      },
+      expected_measurable_effect: `You have ₹${monthlyDebtObligations.toLocaleString('en-IN')}/month in active debt obligations (${dti}% of net income). Retiring these obligations will permanently free up ₹${monthlyDebtObligations.toLocaleString('en-IN')}/month into your investable surplus.`,
+      cta: {
+        label: 'Review Debt Obligations',
+        destination: '/plan',
+        action_type: 'NAVIGATE',
+      },
+      confidence_source: {
+        data_source: 'STATED_BASELINE',
+        confidence_score: 1.0,
+        supporting_fields: ['monthly_debt_obligations', 'monthly_net_income'],
+        calculation_reference: `Monthly Debt = ₹${monthlyDebtObligations.toLocaleString('en-IN')}`,
+      },
+    };
+  }
+
+  // PRIORITY 4: INSUFFICIENT SAVINGS BUFFER
+  const savingsRatePct = safeIncome > 0 ? round2((monthlySurplus / safeIncome) * 100) : 0;
+  const isBufferInsufficient = monthlySurplus < 2500 || savingsRatePct < 10;
+  if (isBufferInsufficient) {
+    const targetBufferAmount = Math.max(round2(safeIncome * 0.15), 3000);
+    const bufferGap = Math.max(round2(targetBufferAmount - monthlySurplus), 0);
+
+    return {
+      id: 'highest_action_buffer',
+      title: 'Expand Monthly Savings Buffer',
+      priority_type: 'P3_INSUFFICIENT_BUFFER',
+      priority_rank: 1,
+      why_it_matters:
+        `Your monthly savings buffer is ₹${monthlySurplus.toLocaleString('en-IN')} (${savingsRatePct}% of net income). A thin savings cushion leaves you vulnerable to minor expense spikes, risking cashflow deficits before goals or long-term investments can compound reliably.`,
+      exact_data_supporting_it: {
+        monthly_income: safeIncome,
+        monthly_expenses: safeExpenses,
+        monthly_surplus: monthlySurplus,
+        savings_rate_pct: savingsRatePct,
+        is_deficit: false,
+        emergency_fund_target: emergencyFund.emergency_fund_target,
+        existing_liquid_savings: emergencyFund.existing_liquid_savings,
+        emergency_fund_gap: 0,
+        monthly_debt_obligations: 0,
+        allocated_amount: monthlySurplus,
+        target_buffer_amount: targetBufferAmount,
+      },
+      expected_measurable_effect: `Your current surplus is ₹${monthlySurplus.toLocaleString('en-IN')} (${savingsRatePct}% savings rate). Trimming ₹${bufferGap.toLocaleString('en-IN')}/month in discretionary spending would expand your savings buffer to ₹${targetBufferAmount.toLocaleString('en-IN')}/month (15% of income), shielding your cashflow against monthly volatility.`,
+      cta: {
+        label: 'Review Spending & Buffer',
+        destination: '/ledger',
+        action_type: 'NAVIGATE',
+      },
+      confidence_source: {
+        data_source: 'DETERMINISTIC_MODEL',
+        confidence_score: 1.0,
+        supporting_fields: ['monthly_surplus', 'monthly_net_income', 'total_monthly_expenses'],
+        calculation_reference: `Surplus ₹${monthlySurplus.toLocaleString('en-IN')} / Net Income ₹${safeIncome.toLocaleString('en-IN')} = ${savingsRatePct}% Savings Buffer`,
+      },
+    };
+  }
+
+  // PRIORITY 5: GOAL CONTRIBUTION
+  const activeGoals = rankedGoals.filter((g) => !g.is_paused && g.remaining_amount > 0);
+  if (activeGoals.length > 0) {
+    const topGoal = activeGoals[0];
+    const allocPerMonth =
+      topGoal.allocated_amount > 0
+        ? topGoal.allocated_amount
+        : Math.min(monthlySurplus, topGoal.required_monthly_contribution);
+    const monthsNeeded =
+      allocPerMonth > 0 ? Math.ceil(topGoal.remaining_amount / allocPerMonth) : topGoal.months_remaining;
+
+    return {
+      id: `highest_action_goal_${topGoal.id}`,
+      title: `Fund Priority Goal: ${topGoal.title}`,
+      priority_type: 'P4_GOAL_CONTRIBUTION',
+      priority_rank: 1,
+      why_it_matters: `Your top goal '${topGoal.title}' has an outstanding funding gap of ₹${topGoal.remaining_amount.toLocaleString('en-IN')} with ${topGoal.months_remaining} month${topGoal.months_remaining === 1 ? '' : 's'} remaining until your target date.`,
+      exact_data_supporting_it: {
+        monthly_income: safeIncome,
+        monthly_expenses: safeExpenses,
+        monthly_surplus: monthlySurplus,
+        is_deficit: false,
+        emergency_fund_target: emergencyFund.emergency_fund_target,
+        existing_liquid_savings: emergencyFund.existing_liquid_savings,
+        emergency_fund_gap: 0,
+        monthly_debt_obligations: 0,
+        goal_title: topGoal.title,
+        target_amount: topGoal.target_amount,
+        current_amount: topGoal.current_amount,
+        goal_remaining_gap: topGoal.remaining_amount,
+        months_remaining: topGoal.months_remaining,
+        allocated_amount: allocPerMonth,
+      },
+      expected_measurable_effect: `Your current surplus is ₹${monthlySurplus.toLocaleString('en-IN')}. Contributing ₹${allocPerMonth.toLocaleString('en-IN')}/month to '${topGoal.title}' would close the ₹${topGoal.remaining_amount.toLocaleString('en-IN')} remaining gap in approximately ${monthsNeeded} month${monthsNeeded === 1 ? '' : 's'}.`,
+      cta: {
+        label: `Fund ${topGoal.title}`,
+        destination: '/plan',
+        action_type: 'NAVIGATE',
+      },
+      confidence_source: {
+        data_source: 'STATED_BASELINE',
+        confidence_score: 1.0,
+        supporting_fields: ['goals.remaining_amount', 'goals.required_monthly_contribution', 'monthly_surplus'],
+        calculation_reference: `Target (₹${topGoal.target_amount.toLocaleString('en-IN')}) - Current (₹${topGoal.current_amount.toLocaleString('en-IN')}) = Gap (₹${topGoal.remaining_amount.toLocaleString('en-IN')})`,
+      },
+    };
+  }
+
+  // PRIORITY 6: LONG-TERM WEALTH ACCELERATION
+  const deployableWealth = wealthAlloc > 0 ? wealthAlloc : monthlySurplus;
+  const corpusTarget = freedomStatus?.indicative_target_corpus || 10000000;
+
+  return {
+    id: 'highest_action_wealth',
+    title: 'Accelerate ₹1 Crore Wealth Path',
+    priority_type: 'P5_WEALTH_ACCELERATION',
+    priority_rank: 1,
+    why_it_matters:
+      'With emergency reserves secured, zero debt obligations, and near-term commitments satisfied, deploying your full surplus into systematic investments directly accelerates your ₹1 Crore timeline.',
+    exact_data_supporting_it: {
+      monthly_income: safeIncome,
+      monthly_expenses: safeExpenses,
+      monthly_surplus: monthlySurplus,
+      is_deficit: false,
+      emergency_fund_target: emergencyFund.emergency_fund_target,
+      existing_liquid_savings: emergencyFund.existing_liquid_savings,
+      emergency_fund_gap: 0,
+      monthly_debt_obligations: 0,
+      allocated_amount: deployableWealth,
+      target_corpus: corpusTarget,
+    },
+    expected_measurable_effect: `Your current surplus is ₹${monthlySurplus.toLocaleString('en-IN')}. Deploying ₹${deployableWealth.toLocaleString('en-IN')}/month into systematic wealth building accumulates ₹${(deployableWealth * 12).toLocaleString('en-IN')} annually toward your ₹${(corpusTarget / 10000000).toFixed(0)} Crore milestone.`,
+    cta: {
+      label: 'Explore ₹1 Crore Levers',
+      destination: '/crore',
+      action_type: 'NAVIGATE',
+    },
+    confidence_source: {
+      data_source: 'DETERMINISTIC_MODEL',
+      confidence_score: 1.0,
+      supporting_fields: ['monthly_surplus', 'long_term_wealth', 'target_corpus'],
+      calculation_reference: `Deployable Surplus = ₹${deployableWealth.toLocaleString('en-IN')}`,
+    },
+  };
+}
+

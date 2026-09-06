@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { StateCode } from '../../../util/stateCodes.js';
 import {
   IntentCategory,
   RiskLevel,
@@ -72,4 +73,6 @@ export interface OrchestratedAnswerResponse {
   provider_used: string;
   conversation_id: string;
   timestamp: string;
+  stateCode: StateCode;
+  verification_status?: string;
 }

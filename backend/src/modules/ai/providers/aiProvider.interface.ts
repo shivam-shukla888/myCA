@@ -4,6 +4,7 @@ export interface GenerateOptions {
   temperature?: number;
   maxOutputTokens?: number;
   systemInstruction?: string;
+  timeoutMs?: number;
 }
 
 export interface AIProvider {

@@ -1,28 +1,87 @@
 'use client';
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
-import { chatApi, ChatResponse, MonthlyReviewResponse, ApiError } from '../../lib/api';
+import {
+  chatApi,
+  ChatResponse,
+  MonthlyReviewResponse,
+  ApiError,
+  behavioralApi,
+  BehavioralAnalysisReport,
+  monthlyReviewApi,
+  StructuredMonthlyReview,
+} from '../../lib/api';
 import { ConfidenceMeter } from '../../components/intelligence/ConfidenceMeter';
 import { EvidenceNode } from '../../components/intelligence/EvidenceNode';
 import { DisclaimerGate } from '../../components/intelligence/DisclaimerGate';
+import { MonthlyReviewView } from '../../components/intelligence/MonthlyReviewView';
 import {
   Send,
   Sparkles,
   ShieldCheck,
   Lock,
   Calendar,
+  TrendingUp,
+  Brain,
+  CheckCircle2,
+  ShieldAlert,
+  RotateCcw,
+  Info,
 } from 'lucide-react';
 
 export default function IntelligencePage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'coach' | 'review'>('coach');
+  const [activeTab, setActiveTab] = useState<'coach' | 'review' | 'behavioral'>('coach');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<MonthlyReviewResponse | null>(null);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [inquiryHistory, setInquiryHistory] = useState<Array<{ query: string; response: ChatResponse }>>([]);
+
+  // Behavioral Finance Coach State
+  const [behavioralReport, setBehavioralReport] = useState<BehavioralAnalysisReport | null>(null);
+  const [behavioralLoading, setBehavioralLoading] = useState(false);
+
+  // Structured Monthly Review State (9 Questions & Milestones)
+  const [structuredReview, setStructuredReview] = useState<StructuredMonthlyReview | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  async function loadStructuredReview(month?: string) {
+    setReviewLoading(true);
+    setReviewError(null);
+    try {
+      const res = await monthlyReviewApi.getMonthlyReview(month);
+      setStructuredReview(res);
+    } catch (err: unknown) {
+      console.error('Failed to load structured monthly review:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to generate monthly review.';
+      setReviewError(msg);
+    } finally {
+      setReviewLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'review' && !structuredReview && !reviewLoading) {
+      loadStructuredReview();
+    }
+  }, [activeTab]);
+
+  async function loadBehavioralReport() {
+    setBehavioralLoading(true);
+    try {
+      const res = await behavioralApi.getInsights();
+      if (res) {
+        setBehavioralReport(res);
+      }
+    } catch (err: unknown) {
+      console.error('Failed to load behavioral insights:', err);
+    } finally {
+      setBehavioralLoading(false);
+    }
+  }
 
   const QUICK_ACTIONS = [
     { label: 'Review my month', query: 'Review my month' },
@@ -47,6 +106,7 @@ export default function IntelligencePage() {
         setConversationId(res.conversation_id);
         setInquiryHistory((prev) => [{ query: inquiryText, response: res }, ...prev]);
         setQuery('');
+        loadStructuredReview();
       } else {
         const res = await chatApi.sendMessage(inquiryText, conversationId);
         setAnalysis(res as MonthlyReviewResponse);
@@ -162,7 +222,7 @@ export default function IntelligencePage() {
           <button
             onClick={() => {
               setActiveTab('review');
-              if (!analysis) handleMonthlyReview();
+              if (!structuredReview) loadStructuredReview();
             }}
             className="instrument-btn"
             style={{
@@ -179,6 +239,27 @@ export default function IntelligencePage() {
           >
             <Calendar size={14} />
             <span>Monthly Financial Review</span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('behavioral');
+              if (!behavioralReport) loadBehavioralReport();
+            }}
+            className="instrument-btn"
+            style={{
+              background: activeTab === 'behavioral' ? 'var(--ink-primary)' : 'var(--canvas-surface)',
+              color: activeTab === 'behavioral' ? 'var(--ink-inverted)' : 'var(--ink-secondary)',
+              border: '1px solid var(--border-hairline)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+            }}
+          >
+            <TrendingUp size={14} />
+            <span>Behavioral Coach</span>
           </button>
         </div>
       </div>
@@ -220,84 +301,92 @@ export default function IntelligencePage() {
       )}
 
       {/* Inquiry Formulation Console */}
-      <div
-        style={{
-          background: 'var(--canvas-surface)',
-          border: '1px solid var(--ink-primary)',
-          padding: '24px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="meta-tag" style={{ color: 'var(--ink-primary)' }}>
-            Financial Coach Inquiry Console
-          </span>
-          <span className="badge-signal badge-forest" style={{ fontSize: '9.5px' }}>
-            <ShieldCheck size={10} /> ZERO CALCULATION FABRICATION • GROUNDED IN VERIFIED ENGINES
-          </span>
-        </div>
+      {activeTab === 'coach' && (
+        <div
+          style={{
+            background: 'var(--canvas-surface)',
+            border: '1px solid var(--ink-primary)',
+            padding: '24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <span className="meta-tag" style={{ color: 'var(--ink-primary)' }}>
+              Financial Coach Inquiry Console
+            </span>
+            <span className="badge-signal badge-forest" style={{ fontSize: '9.5px' }}>
+              <ShieldCheck size={10} /> GROUNDED IN VERIFIED ENGINES
+            </span>
+          </div>
 
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <textarea
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                handleExecute();
-              }
-            }}
-            placeholder="Ask your coach: 'How did I do this month?', 'Can I afford a ₹20,000 phone?', 'Why am I saving less?'..."
-            rows={2}
-            style={{
-              flex: 1,
-              padding: '12px 16px',
-              background: 'var(--canvas-inset)',
-              border: '1px solid var(--border-hairline)',
-              outline: 'none',
-              resize: 'none',
-              fontSize: '13px',
-              lineHeight: 1.5,
-              color: 'var(--ink-primary)',
-            }}
-          />
-          <button
-            onClick={() => handleExecute()}
-            disabled={loading || !query.trim()}
-            className="instrument-btn"
-            style={{ alignSelf: 'stretch', padding: '0 24px' }}
-          >
-            <Send size={14} />
-            {loading ? 'Evaluating...' : 'Ask Coach'}
-          </button>
-        </div>
-
-        {/* Curated Quick Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <span className="meta-tag" style={{ fontSize: '9px' }}>Quick Inquiries:</span>
-          {QUICK_ACTIONS.map((item, idx) => (
-            <button
-              key={idx}
-              onClick={() => {
-                setQuery(item.query);
-                handleExecute(item.query);
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <textarea
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  handleExecute();
+                }
               }}
+              placeholder="Ask your coach: 'How did I do this month?', 'Can I afford a ₹20,000 phone?', 'Why am I saving less?'..."
+              rows={2}
               style={{
+                flex: '1 1 240px',
+                padding: '12px 14px',
                 background: 'var(--canvas-inset)',
                 border: '1px solid var(--border-hairline)',
-                padding: '4px 10px',
-                fontSize: '11px',
-                cursor: 'pointer',
-                color: 'var(--ink-secondary)',
-                transition: 'all 0.15s ease',
+                outline: 'none',
+                resize: 'none',
+                fontSize: '13px',
+                lineHeight: 1.5,
+                color: 'var(--ink-primary)',
+                minHeight: '52px',
+              }}
+            />
+            <button
+              onClick={() => handleExecute()}
+              disabled={loading || !query.trim()}
+              className="instrument-btn"
+              style={{
+                padding: '0 20px',
+                minHeight: '44px',
+                flex: '1 1 auto',
+                justifyContent: 'center',
               }}
             >
-              {item.label}
+              <Send size={14} />
+              <span>{loading ? 'Evaluating...' : 'Ask Coach'}</span>
             </button>
-          ))}
+          </div>
+
+          {/* Curated Quick Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span className="meta-tag" style={{ fontSize: '9px' }}>Quick Inquiries:</span>
+            {QUICK_ACTIONS.map((item, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  setQuery(item.query);
+                  handleExecute(item.query);
+                }}
+                style={{
+                  background: 'var(--canvas-inset)',
+                  border: '1px solid var(--border-hairline)',
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  color: 'var(--ink-secondary)',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Intentional Loading Experience */}
       {loading && (
@@ -369,295 +458,16 @@ export default function IntelligencePage() {
 
       {/* DEDICATED MONTHLY FINANCIAL REVIEW VIEW */}
       {activeTab === 'review' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Top Review Header */}
-          <div
-            style={{
-              padding: '20px 24px',
-              background: 'var(--canvas-surface)',
-              border: '1px solid var(--border-hairline)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '12px',
-            }}
-          >
-            <div>
-              <div className="meta-tag" style={{ color: 'var(--ink-primary)', marginBottom: '4px' }}>
-                MONTHLY FINANCIAL REVIEW {dtContext ? `• ${dtContext.month}` : ''}
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--ink-secondary)' }}>
-                Comprehensive evaluation of current cash flows, spending frictions, allocation health, and freedom roadmap.
-              </div>
-            </div>
-            <button
-              onClick={handleMonthlyReview}
-              disabled={loading}
-              className="instrument-btn"
-              style={{
-                fontSize: '11px',
-                padding: '8px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <Calendar size={13} />
-              {loading ? 'Refreshing Review...' : 'Refresh Review'}
-            </button>
-          </div>
-
-          {/* Section 1: THIS MONTH KPI Bar */}
-          {dtContext && dtContext.has_monthly_data ? (
-            <div
-              style={{
-                background: 'var(--canvas-surface)',
-                border: '1px solid var(--border-hairline)',
-                padding: '24px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="meta-tag" style={{ fontWeight: 600, color: 'var(--ink-primary)' }}>
-                  THIS MONTH
-                </span>
-                <span className="badge-signal badge-forest" style={{ fontSize: '9px' }}>
-                  DETERMINISTIC DATA
-                </span>
-              </div>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: '16px',
-                  padding: '16px',
-                  background: 'var(--canvas-inset)',
-                  border: '1px solid var(--border-hairline)',
-                }}
-              >
-                <div>
-                  <div className="meta-tag">INCOME</div>
-                  <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    ₹{dtContext.current_month.income.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                <div>
-                  <div className="meta-tag">EXPENSES</div>
-                  <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    ₹{dtContext.current_month.expenses.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                <div>
-                  <div className="meta-tag">SURPLUS</div>
-                  <div
-                    style={{
-                      fontSize: '22px',
-                      fontWeight: 600,
-                      fontFamily: 'var(--font-mono)',
-                      color: dtContext.current_month.surplus >= 0 ? 'var(--signal-forest)' : 'var(--signal-terracotta)',
-                    }}
-                  >
-                    ₹{dtContext.current_month.surplus.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                <div>
-                  <div className="meta-tag">SAVINGS RATE</div>
-                  <div style={{ fontSize: '22px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    {dtContext.current_month.savings_rate}%
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div
-              style={{
-                padding: '20px',
-                background: 'var(--canvas-surface)',
-                border: '1px solid var(--border-hairline)',
-                fontSize: '13px',
-                color: 'var(--ink-secondary)',
-              }}
-            >
-              No verified monthly transactions recorded yet for this month. Upload statements or add transactions in the Ledger.
-            </div>
-          )}
-
-          {/* Section 2: WHAT'S WORKING & MAIN PRESSURE Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-            {/* WHAT'S WORKING */}
-            <div
-              style={{
-                background: 'var(--canvas-surface)',
-                border: '1px solid var(--border-hairline)',
-                borderLeft: '4px solid var(--signal-forest)',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-              }}
-            >
-              <div className="meta-tag" style={{ color: 'var(--signal-forest)' }}>
-                WHAT&apos;S WORKING
-              </div>
-              <div style={{ fontSize: '14px', lineHeight: 1.5, color: 'var(--ink-primary)' }}>
-                {reviewPoints.whatWentWell ||
-                  (dtContext && dtContext.current_month.surplus > 0
-                    ? `You generated a positive surplus of ₹${dtContext.current_month.surplus.toLocaleString('en-IN')} with a ${dtContext.current_month.savings_rate}% savings rate.`
-                    : 'Your cash flows and transactions are strictly tracked and audited.')}
-              </div>
-            </div>
-
-            {/* MAIN PRESSURE */}
-            <div
-              style={{
-                background: 'var(--canvas-surface)',
-                border: '1px solid var(--border-hairline)',
-                borderLeft: '4px solid var(--signal-amber)',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-              }}
-            >
-              <div className="meta-tag" style={{ color: 'var(--signal-amber)' }}>
-                MAIN PRESSURE
-              </div>
-              <div style={{ fontSize: '14px', lineHeight: 1.5, color: 'var(--ink-primary)' }}>
-                {reviewPoints.mainPressure ||
-                  (dtContext && dtContext.current_month.top_expense_categories.length > 0
-                    ? `Your highest expenditure category is ${dtContext.current_month.top_expense_categories[0].category} at ₹${dtContext.current_month.top_expense_categories[0].amount.toLocaleString('en-IN')} (${dtContext.current_month.top_expense_categories[0].percentage}% of total).`
-                    : 'Review discretionary spending to minimize cash flow strain.')}
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: NEXT ACTION */}
-          <div
-            style={{
-              background: 'var(--canvas-surface)',
-              border: '1px solid var(--border-hairline)',
-              borderLeft: '4px solid var(--ink-primary)',
-              padding: '20px 24px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-            }}
-          >
-            <div className="meta-tag" style={{ color: 'var(--ink-primary)' }}>
-              NEXT ACTION
-            </div>
-            <div style={{ fontSize: '15px', fontWeight: 500, lineHeight: 1.5, color: 'var(--ink-primary)' }}>
-              {reviewPoints.nextAction ||
-                (dtContext?.allocation && dtContext.allocation.emergency_gap > 0
-                  ? `Strengthen your liquid emergency reserve by directing ₹${dtContext.current_month.surplus > 0 ? dtContext.current_month.surplus.toLocaleString('en-IN') : '0'} to close your ₹${dtContext.allocation.emergency_gap.toLocaleString('en-IN')} target gap.`
-                  : 'Maintain structured contributions according to your target allocation plan.')}
-            </div>
-            {reviewPoints.explanation && (
-              <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', marginTop: '4px' }}>
-                {reviewPoints.explanation}
-              </div>
-            )}
-          </div>
-
-          {/* Section 4: FINANCIAL FREEDOM STATUS */}
-          {dtContext?.financial_freedom ? (
-            <div
-              style={{
-                background: 'var(--canvas-surface)',
-                border: '1px solid var(--border-hairline)',
-                padding: '24px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="meta-tag" style={{ color: 'var(--ink-primary)' }}>
-                  FINANCIAL FREEDOM STATUS
-                </span>
-                <span
-                  className={`badge-signal ${
-                    dtContext.financial_freedom.on_track ? 'badge-forest' : 'badge-amber'
-                  }`}
-                >
-                  {dtContext.financial_freedom.on_track ? 'ON TRACK' : 'NEEDS ACCELERATION'}
-                </span>
-              </div>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: '16px',
-                  padding: '16px',
-                  background: 'var(--canvas-inset)',
-                  border: '1px solid var(--border-hairline)',
-                }}
-              >
-                <div>
-                  <div className="meta-tag">CURRENT WEALTH</div>
-                  <div style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    ₹{dtContext.financial_freedom.current_wealth.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                <div>
-                  <div className="meta-tag">TARGET CORPUS</div>
-                  <div style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    ₹{dtContext.financial_freedom.indicative_target_corpus.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                <div>
-                  <div className="meta-tag">PROJECTED AT AGE {dtContext.financial_freedom.target_age}</div>
-                  <div style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    ₹{dtContext.financial_freedom.projected_wealth.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                <div>
-                  <div className="meta-tag">FUNDING GAP</div>
-                  <div
-                    style={{
-                      fontSize: '18px',
-                      fontWeight: 600,
-                      fontFamily: 'var(--font-mono)',
-                      color: dtContext.financial_freedom.funding_gap > 0 ? 'var(--signal-amber)' : 'var(--signal-forest)',
-                    }}
-                  >
-                    ₹{dtContext.financial_freedom.funding_gap.toLocaleString('en-IN')}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div
-              style={{
-                padding: '20px',
-                background: 'var(--canvas-surface)',
-                border: '1px solid var(--border-hairline)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <div>
-                <div className="meta-tag" style={{ marginBottom: '4px' }}>FINANCIAL FREEDOM STATUS</div>
-                <div style={{ fontSize: '12.5px', color: 'var(--ink-secondary)' }}>
-                  Target corpus not calculated yet. Configure your age and target lifestyle in the Financial Freedom Planner.
-                </div>
-              </div>
-              <Link href="/plan" className="instrument-btn" style={{ fontSize: '11px', textDecoration: 'none' }}>
-                Go to Freedom Planner →
-              </Link>
-            </div>
-          )}
-        </div>
+        <MonthlyReviewView
+          review={structuredReview}
+          loading={reviewLoading}
+          error={reviewError}
+          onRefresh={() => loadStructuredReview()}
+        />
       )}
 
       {/* Active Intelligence Analysis (Structured Evidence-Grounded Dossier) */}
-      {analysis && (
+      {activeTab === 'coach' && analysis && (
         <div
           style={{
             background: 'var(--canvas-surface)',
@@ -770,6 +580,309 @@ export default function IntelligencePage() {
             disclaimer={analysis.disclaimer}
             humanReviewRequired={analysis.human_review_required}
           />
+        </div>
+      )}
+
+      {/* DEDICATED BEHAVIORAL FINANCE COACH VIEW */}
+      {activeTab === 'behavioral' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {/* Header */}
+          <div
+            style={{
+              padding: '20px 24px',
+              background: 'var(--canvas-surface)',
+              border: '1px solid var(--border-hairline)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <Brain size={18} color="#10b981" />
+                <span className="meta-tag" style={{ color: 'var(--ink-primary)', fontSize: '12px', fontWeight: 700 }}>
+                  BEHAVIORAL FINANCE COACH • GROUNDED HABIT ARCHITECTURE
+                </span>
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--ink-secondary)', maxWidth: '680px' }}>
+                Analytical behavioral insights grounded strictly in verified transactions and ledger patterns. Every insight separates Fact, Calculation, Interpretation, and Guidance.
+              </div>
+            </div>
+
+            <button
+              onClick={loadBehavioralReport}
+              disabled={behavioralLoading}
+              className="instrument-btn"
+              style={{
+                fontSize: '11px',
+                padding: '8px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <RotateCcw size={13} className={behavioralLoading ? 'animate-spin' : ''} />
+              {behavioralLoading ? 'Analyzing...' : 'Refresh Insights'}
+            </button>
+          </div>
+
+          {/* Ethical Guardrails Affirmation Strip */}
+          <div
+            style={{
+              padding: '12px 18px',
+              background: 'rgba(16, 185, 129, 0.05)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '11.5px',
+              color: 'var(--ink-secondary)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#10b981' }}>
+              <ShieldCheck size={14} />
+              <span>ETHICAL COACHING BOUNDARIES:</span>
+            </div>
+            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '11px' }}>
+              <span>✓ No Mental Health Diagnosis</span>
+              <span>✓ Zero Shaming</span>
+              <span>✓ Zero Fear-Mongering</span>
+              <span>✓ Zero Guilt</span>
+              <span>✓ No Manufactured Urgency</span>
+            </div>
+          </div>
+
+          {/* Loading State */}
+          {behavioralLoading && !behavioralReport && (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-muted)', fontSize: '13px' }}>
+              Analyzing verified financial transactions and habit patterns across 8 behavioral dimensions...
+            </div>
+          )}
+
+          {/* Empty / Initial State */}
+          {!behavioralLoading && !behavioralReport && (
+            <div
+              style={{
+                padding: '36px 24px',
+                background: 'var(--canvas-surface)',
+                border: '1px solid var(--border-hairline)',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '12px',
+              }}
+            >
+              <Brain size={32} color="var(--ink-tertiary)" />
+              <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--ink-primary)' }}>
+                Behavioral Habit Analysis Ready
+              </div>
+              <p style={{ fontSize: '13px', color: 'var(--ink-muted)', maxWidth: '480px', margin: 0 }}>
+                Evaluate spending changes, lifestyle inflation, impulse spending, decision fatigue, procrastination, social comparison, emotional spending, and goal fatigue.
+              </p>
+              <button
+                onClick={loadBehavioralReport}
+                className="instrument-btn"
+                style={{ marginTop: '8px', padding: '10px 20px', fontSize: '12px', fontWeight: 600 }}
+              >
+                Run Behavioral Analysis
+              </button>
+            </div>
+          )}
+
+          {/* Behavioral Report Cards Grid */}
+          {behavioralReport && (
+            <>
+              {/* Overall Status Banner */}
+              <div
+                style={{
+                  padding: '12px 18px',
+                  background: 'var(--canvas-surface)',
+                  border: '1px solid var(--border-hairline)',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  fontSize: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="meta-tag">EVIDENTIARY STATUS:</span>
+                  <span style={{
+                    fontWeight: 700,
+                    color: behavioralReport.overall_status === 'ANALYSIS_COMPLETE'
+                      ? '#10b981'
+                      : behavioralReport.overall_status === 'PARTIAL_DATA'
+                      ? '#d97706'
+                      : 'var(--ink-muted)'
+                  }}>
+                    {behavioralReport.overall_status.replace('_', ' ')}
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+                  {behavioralReport.sufficient_dimensions_count} of 8 Dimensions With Sufficient Evidence
+                </div>
+              </div>
+
+              {/* 8 Dimension Cards Grid */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
+                  gap: '20px',
+                }}
+              >
+                {Object.values(behavioralReport.dimensions).map((item) => {
+                  const hasData = item.status === 'SUFFICIENT_DATA';
+
+                  return (
+                    <div
+                      key={item.dimension}
+                      style={{
+                        background: 'var(--canvas-surface)',
+                        border: '1px solid var(--border-hairline)',
+                        borderRadius: '10px',
+                        padding: '20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        gap: '16px',
+                      }}
+                    >
+                      <div>
+                        {/* Card Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--ink-primary)' }}>
+                            {item.title}
+                          </h3>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              fontFamily: 'var(--font-mono)',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: hasData ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                              color: hasData ? '#10b981' : '#d97706',
+                              textTransform: 'uppercase',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {hasData ? 'Sufficient Data' : 'Insufficient Evidence'}
+                          </span>
+                        </div>
+
+                        {/* Misleading Correlation Protection Callout */}
+                        {item.flagged_misleading_correlation && (
+                          <div
+                            style={{
+                              padding: '8px 10px',
+                              background: 'rgba(59, 130, 246, 0.08)',
+                              border: '1px solid rgba(59, 130, 246, 0.25)',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              color: '#2563eb',
+                              marginBottom: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            <Info size={13} style={{ flexShrink: 0 }} />
+                            <span>{item.misleading_reason || 'Filtered non-recurring or essential shock from habit evaluation'}</span>
+                          </div>
+                        )}
+
+                        {/* 4-Part Structure Contract */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12.5px' }}>
+                          {/* 1. FACT */}
+                          <div>
+                            <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px', fontFamily: 'var(--font-mono)' }}>
+                              FACT
+                            </div>
+                            <div style={{ color: 'var(--ink-primary)', lineHeight: 1.45 }}>
+                              {item.fact}
+                            </div>
+                          </div>
+
+                          {/* 2. CALCULATION */}
+                          <div
+                            style={{
+                              padding: '8px 10px',
+                              background: 'var(--canvas-inset)',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border-hairline)',
+                            }}
+                          >
+                            <div style={{ fontSize: '9.5px', fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px', fontFamily: 'var(--font-mono)' }}>
+                              CALCULATION
+                            </div>
+                            <div style={{ fontSize: '11.5px', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)', lineHeight: 1.4 }}>
+                              {item.calculation}
+                            </div>
+                          </div>
+
+                          {/* 3. INTERPRETATION */}
+                          <div>
+                            <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px', fontFamily: 'var(--font-mono)' }}>
+                              INTERPRETATION
+                            </div>
+                            <div style={{ color: 'var(--ink-secondary)', lineHeight: 1.45 }}>
+                              {item.interpretation}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4. GUIDANCE */}
+                      <div
+                        style={{
+                          padding: '10px 12px',
+                          background: 'rgba(16, 185, 129, 0.04)',
+                          borderLeft: '3px solid #10b981',
+                          borderRadius: '0 6px 6px 0',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div style={{ fontSize: '9.5px', fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px', fontFamily: 'var(--font-mono)' }}>
+                          GUIDANCE
+                        </div>
+                        <div style={{ color: 'var(--ink-primary)', lineHeight: 1.4 }}>
+                          {item.guidance}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Statutory Behavioral Coaching Notice */}
+              <div
+                style={{
+                  padding: '14px 18px',
+                  background: 'var(--canvas-inset)',
+                  border: '1px solid var(--border-hairline)',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                  color: 'var(--ink-muted)',
+                  lineHeight: 1.5,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                }}
+              >
+                <Info size={15} style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div>{behavioralReport.disclaimer}</div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

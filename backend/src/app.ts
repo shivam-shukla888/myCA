@@ -21,6 +21,9 @@ import jobRoutes from './modules/jobs/job.routes.js';
 import ocrRoutes from './modules/ocr/ocr.routes.js';
 import croreRoutes from './modules/crore/crore.routes.js';
 import { knowledgeRoutes } from './modules/knowledge/knowledge.routes.js';
+import { canonicalFinanceRoutes } from './modules/finance/canonicalFinance.routes.js';
+import behavioralRoutes from './modules/behavioral/behavioral.routes.js';
+import { marketRoutes } from './modules/market/market.routes.js';
 
 export function createApp(): Express {
   const app = express();
@@ -88,6 +91,7 @@ export function createApp(): Express {
 
   // Protected Core Financial & Operational APIs (require valid Supabase JWT + Rate Limiting)
   app.use('/api/v1/transactions', standardApiRateLimiter, requireAuth, transactionRoutes);
+  app.use('/api/v1/finance', standardApiRateLimiter, requireAuth, canonicalFinanceRoutes);
   app.use('/api/v1/allocation', standardApiRateLimiter, requireAuth, allocationRoutes);
   app.use('/api/v1/freedom', standardApiRateLimiter, requireAuth, freedomRoutes);
   app.use('/api/v1/crore', standardApiRateLimiter, requireAuth, croreRoutes);
@@ -100,6 +104,10 @@ export function createApp(): Express {
   app.use('/api/v1/jobs', standardApiRateLimiter, jobRoutes);
   // Financial Knowledge Base APIs
   app.use('/api/v1/knowledge', standardApiRateLimiter, knowledgeRoutes);
+  // Behavioral Finance Coach APIs
+  app.use('/api/v1/behavioral', standardApiRateLimiter, requireAuth, behavioralRoutes);
+  // Live Market Intelligence & Watchlist APIs
+  app.use('/api/v1/market', standardApiRateLimiter, requireAuth, marketRoutes);
 
   // Admin APIs (requires valid Supabase JWT + ADMIN role)
   app.use('/api/v1/admin', requireAuth, adminRoutes);

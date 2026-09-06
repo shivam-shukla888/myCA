@@ -173,6 +173,7 @@ async function runAskCaMatrixTests() {
   assert(q13.status === 200, 'Q13: Responded 200 OK');
   assert(
     q13.body.data.refusal_or_limitation === 'MISSING_DATA' ||
+    q13.body.data.refusal_or_limitation === 'UNKNOWN_FINANCIAL_DATA' ||
     q13.body.data.answer.toLowerCase().includes('missing') ||
     q13.body.data.answer.toLowerCase().includes('not set up') ||
     q13.body.data.answer.toLowerCase().includes('no recorded transaction'),

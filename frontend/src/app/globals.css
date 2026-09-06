@@ -218,12 +218,115 @@ button, input, select, textarea {
   background: var(--ink-tertiary);
 }
 
-/* Responsive Handling */
-@media (max-width: 900px) {
-  .app-viewport {
-    flex-direction: column;
-  }
+/* Responsive Layout & Mobile Hardening */
+.desktop-only {
+  display: flex;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
+/* Touch targets and accessible tap controls */
+.touch-target,
+.instrument-btn,
+button.instrument-btn-secondary {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 12px;
+}
+
+/* Modal and Drawer positioning on mobile */
+.mobile-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1200;
+  background: var(--canvas-surface);
+  border-top: 2px solid var(--ink-primary);
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.12);
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1024px) {
   .content-canvas {
-    padding: 24px 16px;
+    padding: 28px 24px;
   }
 }
+
+@media (max-width: 900px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+
+  .app-viewport {
+    flex-direction: column;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 16px));
+    width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .content-canvas {
+    padding: 16px 14px;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+}
+
+/* 768px tablet layout */
+@media (max-width: 768px) {
+  h1 {
+    font-size: 24px !important;
+  }
+  .content-canvas {
+    padding: 14px 12px;
+  }
+}
+
+/* 430px (iPhone 14/15/16 Pro Max) */
+@media (max-width: 430px) {
+  .content-canvas {
+    padding: 12px 10px;
+  }
+  .tabular-nums, [data-financial-num] {
+    font-size: 92%;
+  }
+}
+
+/* 390px (iPhone 13/14/15/16) */
+@media (max-width: 390px) {
+  .content-canvas {
+    padding: 10px 8px;
+  }
+}
+
+/* 375px (iPhone SE / Compact Mobile) */
+@media (max-width: 375px) {
+  .content-canvas {
+    padding: 8px 6px;
+  }
+  .badge-signal {
+    font-size: 9px;
+    padding: 2px 4px;
+  }
+}
+

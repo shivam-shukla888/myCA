@@ -59,6 +59,10 @@ const INVESTMENT_EDU_PATTERNS = [
   /\b(difference\s+between\s+equity\s+and\s+debt)\b/i,
 ];
 
+const DOCUMENT_PATTERNS = [
+  /\b(salary\s*slip|payslip|pay\s*slip|form\s*16|form\s*26as|invoice|bill|receipt|uploaded\s*document|confirmed\s*document|extracted\s*data)\b/i,
+];
+
 export function classifyIntent(query: string): ClassificationResult {
   const normalized = query.trim();
   const reasons: string[] = [];
@@ -133,7 +137,21 @@ export function classifyIntent(query: string): ClassificationResult {
     }
   }
 
-  // 6. Personal Finance (Monthly Review, Savings, Emergency, Freedom, Affordability)
+  // 6. Document Analysis (Salary slip, payslip, uploaded tax/invoice documents)
+  for (const pattern of DOCUMENT_PATTERNS) {
+    if (pattern.test(normalized)) {
+      reasons.push('Query inquires about specific uploaded or confirmed document data');
+      return {
+        intent: 'DOCUMENT_ANALYSIS',
+        risk_level: 'LOW',
+        is_personalized_advice_request: false,
+        is_statutory_filing_request: false,
+        reasons,
+      };
+    }
+  }
+
+  // 7. Personal Finance (Monthly Review, Savings, Emergency, Freedom, Affordability)
   for (const pattern of PERSONAL_FINANCE_PATTERNS) {
     if (pattern.test(normalized)) {
       reasons.push('Monthly financial review, savings allocation, freedom, or affordability inquiry');

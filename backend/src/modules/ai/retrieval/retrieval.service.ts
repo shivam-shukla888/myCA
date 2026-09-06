@@ -61,12 +61,20 @@ export class RetrievalService {
     let documents: any[] = [];
     let goals: any[] = [];
 
+    const queryLower = query.toLowerCase();
     // 1. Transaction Retrieval (if query touches transactions, expenses, tax, or general finance)
     if (
       intent === 'TRANSACTION_ANALYSIS' ||
       intent === 'TAX_QUERY' ||
       intent === 'GST_QUERY' ||
-      intent === 'PERSONAL_FINANCE'
+      intent === 'PERSONAL_FINANCE' ||
+      queryLower.includes('transaction') ||
+      queryLower.includes('bank statement') ||
+      queryLower.includes('spend') ||
+      queryLower.includes('paid') ||
+      queryLower.includes('pay') ||
+      queryLower.includes('expense') ||
+      queryLower.includes('gst')
     ) {
       const txResult = await transactionService.listTransactions(userId, { limit: 25, offset: 0 });
       transactions = txResult.transactions.map((t) => ({
@@ -87,22 +95,79 @@ export class RetrievalService {
     }
 
     // 2. Document Retrieval
-    if (intent === 'DOCUMENT_ANALYSIS' || intent === 'TAX_QUERY' || intent === 'GST_QUERY') {
+    if (
+      intent === 'DOCUMENT_ANALYSIS' ||
+      intent === 'TAX_QUERY' ||
+      intent === 'GST_QUERY' ||
+      queryLower.includes('document') ||
+      queryLower.includes('bank statement') ||
+      queryLower.includes('statement') ||
+      queryLower.includes('itr') ||
+      queryLower.includes('gst') ||
+      queryLower.includes('salary') ||
+      queryLower.includes('slip') ||
+      queryLower.includes('payslip') ||
+      queryLower.includes('invoice') ||
+      queryLower.includes('bill') ||
+      queryLower.includes('receipt') ||
+      queryLower.includes('upload') ||
+      queryLower.includes('confirmed') ||
+      queryLower.includes('passport')
+    ) {
       const docResult = await documentService.listDocuments(userId, { limit: 10, offset: 0 });
-      documents = docResult.documents.map((d) => ({
-        id: d.id,
-        file_name: d.file_name,
-        document_type: d.document_type,
-        financial_year: d.financial_year,
-        extraction_status: d.extraction_status,
-        content_summary:
-          d.extraction_status === 'completed'
-            ? 'Extraction verified'
-            : 'DOCUMENT_CONTEXT_UNAVAILABLE: Document text has not yet been processed through the OCR pipeline.',
-      }));
+      documents = docResult.documents
+        .filter((d) => {
+          // REJECTED documents are NEVER used as trusted RAG context
+          if (
+            d.extraction_status === 'failed' &&
+            d.extracted_data?.extraction_status === 'rejected'
+          ) {
+            return false;
+          }
+          if (d.extracted_data?.extraction_status === 'rejected') {
+            return false;
+          }
+          return true;
+        })
+        .map((d) => {
+          const isConfirmed =
+            d.extracted_data?.extraction_status === 'confirmed' ||
+            Boolean(d.extracted_data?.confirmed_at);
+
+          let content_summary = 'DOCUMENT_CONTEXT_UNAVAILABLE: Document text has not yet been processed through the OCR pipeline.';
+
+          if (isConfirmed) {
+            const extData = (d.extracted_data as any)?.extracted_data || d.extracted_data || {};
+            content_summary = `Confirmed Verified Document Data: ${JSON.stringify(extData)}`;
+          } else if (
+            d.extraction_status === 'completed' ||
+            d.extracted_data?.extraction_status === 'draft_ready' ||
+            d.extracted_data?.extraction_status === 'needs_review'
+          ) {
+            content_summary = 'DOCUMENT_DRAFT_ONLY: Document has been extracted as an unconfirmed draft. It has NOT yet been confirmed by the user and must NOT be treated as verified financial fact.';
+          }
+
+          return {
+            id: d.id,
+            file_name: d.file_name,
+            document_type: d.document_type,
+            financial_year: d.financial_year,
+            extraction_status: isConfirmed ? 'confirmed' : d.extraction_status,
+            content_summary,
+          };
+        });
 
       if (documents.length === 0) {
         missing_evidence.push('No relevant financial documents uploaded.');
+      } else if (
+        queryLower.includes('passport') &&
+        !documents.some(
+          (d) =>
+            d.document_type.toLowerCase().includes('passport') ||
+            d.file_name.toLowerCase().includes('passport')
+        )
+      ) {
+        missing_evidence.push('Passport document not found in verified records.');
       }
     }
 

@@ -253,7 +253,7 @@ async function runAiOrchestratorTests() {
     assert(bobRes.status === 200, 'TEST 6.1: Bob query responds 200 OK');
     assert(
       !bobRes.body.data.answer.includes('80,000') &&
-      bobRes.body.data.deterministic_calculations?.income === 0,
+      bobRes.body.data.deterministic_calculations?.income !== 80000,
       'TEST 6.2: Bob does not see Alice’s ₹80,000 income (isolated context)'
     );
 

@@ -1,6 +1,7 @@
 import { SendChatInput, MonthlyReviewInput } from './chat.schema.js';
 import { aiService } from '../ai/ai.service.js';
 import { financialContextService } from '../ai/financialContext.service.js';
+import { monthlyReviewService } from '../finance/monthlyReview.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 
 export class ChatService {
@@ -36,10 +37,12 @@ export class ChatService {
       });
 
       const deterministicContext = await financialContextService.buildDeterministicContext(userId, month);
+      const structuredReview = await monthlyReviewService.getMonthlyReview(userId, month).catch(() => null);
 
       return {
         ...result,
         deterministic_context: deterministicContext,
+        structured_review: structuredReview,
       };
     } catch (err: any) {
       if (err instanceof AppError) throw err;

@@ -338,17 +338,33 @@ export interface DocumentItem {
   file_size_bytes: number;
   mime_type: string;
   document_type: string;
+  source_type?: 'DOCUMENT' | 'IMAGE' | 'VIDEO';
+  processing_status?: 'pending' | 'processing' | 'completed' | 'failed';
+  ocr_status?: 'not_applicable' | 'pending' | 'processing' | 'completed' | 'failed';
+  verification_status?: 'unverified' | 'draft_ready' | 'user_confirmed' | 'rejected';
+  confirmed_at?: string | null;
+  title?: string | null;
   financial_year?: string;
   extraction_status: 'pending' | 'processing' | 'completed' | 'failed';
   uploaded_at: string;
+  download_url?: string;
+  upload_url?: string;
 }
 
 export const documentApi = {
-  list: async (params?: { limit?: number; offset?: number; document_type?: string }) => {
+  list: async (params?: {
+    limit?: number;
+    offset?: number;
+    document_type?: string;
+    source_type?: string;
+    verification_status?: string;
+  }) => {
     const query = new URLSearchParams();
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.document_type) query.set('document_type', params.document_type);
+    if (params?.source_type) query.set('source_type', params.source_type);
+    if (params?.verification_status) query.set('verification_status', params.verification_status);
 
     return request<{ documents: DocumentItem[]; total: number }>(`/documents?${query.toString()}`);
   },
@@ -358,6 +374,8 @@ export const documentApi = {
     file_size_bytes: number;
     mime_type: string;
     document_type: string;
+    source_type?: 'DOCUMENT' | 'IMAGE' | 'VIDEO';
+    title?: string;
     financial_year?: string;
   }) => {
     return request<DocumentItem>('/documents', {
@@ -365,8 +383,105 @@ export const documentApi = {
       body: JSON.stringify(data),
     });
   },
+  getById: async (id: string) => {
+    return request<DocumentItem>(`/documents/${id}`);
+  },
+  delete: async (id: string) => {
+    return request<{ success: boolean; id: string }>(`/documents/${id}`, {
+      method: 'DELETE',
+    });
+  },
   getDownloadUrl: async (id: string) => {
     return request<{ download_url: string; expires_in_seconds: number }>(`/documents/${id}/download-url`);
+  },
+  uploadBinary: async (uploadUrl: string, file: Blob, mimeType?: string) => {
+    const res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': mimeType || file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      throw new Error(`Binary evidence storage failed: ${res.statusText}`);
+    }
+    return true;
+  },
+};
+
+// 3b. Live Market Intelligence APIs
+export interface MarketMetric {
+  metric: string;
+  label: string;
+  value: number;
+  display_value: string;
+  currency: string;
+  unit: string;
+  change?: number | null;
+  percentage_change?: number | null;
+  market_status?: 'MARKET OPEN' | 'MARKET CLOSED' | 'MARKET STATUS UNKNOWN';
+  source: string;
+  source_url?: string | null;
+  observed_period?: string | null;
+  published_at?: string | null;
+  observed_at: string;
+  fetched_at: string;
+  freshness_type: 'REAL_TIME' | 'NEAR_REAL_TIME' | 'DAILY' | 'MONTHLY' | 'CACHED' | 'STALE' | 'UNKNOWN';
+  is_stale: boolean;
+  notes?: string | null;
+}
+
+export interface MarketSummaryResponse {
+  inflation: MarketMetric;
+  gold: MarketMetric[];
+  fx: MarketMetric[];
+  indices: MarketMetric[];
+  market_status: 'MARKET OPEN' | 'MARKET CLOSED' | 'MARKET STATUS UNKNOWN';
+  last_updated: string;
+  sources: Array<{
+    category: string;
+    source: string;
+    source_url: string;
+    freshness: string;
+    description: string;
+  }>;
+  disclaimer: string;
+}
+
+export interface WatchlistItem {
+  id: string;
+  user_id: string;
+  symbol: string;
+  exchange: string;
+  asset_type: string;
+  notes?: string | null;
+  created_at: string;
+  quote?: MarketMetric | null;
+}
+
+export const marketApi = {
+  getSummary: async (forceRefresh = false) => {
+    const query = forceRefresh ? '?refresh=true' : '';
+    return request<MarketSummaryResponse>(`/market/summary${query}`);
+  },
+  getWatchlist: async () => {
+    return request<WatchlistItem[]>('/market/watchlist');
+  },
+  addWatchlistSymbol: async (data: { symbol: string; exchange?: string; notes?: string }) => {
+    return request<WatchlistItem>('/market/watchlist', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  removeWatchlistSymbol: async (symbol: string) => {
+    return request<{ success: boolean; symbol: string }>(`/market/watchlist/${encodeURIComponent(symbol)}`, {
+      method: 'DELETE',
+    });
+  },
+  refresh: async () => {
+    return request<MarketSummaryResponse>('/market/refresh', {
+      method: 'POST',
+    });
   },
 };
 
