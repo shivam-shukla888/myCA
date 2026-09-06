@@ -910,28 +910,52 @@ export const ocrApi = {
 };
 
 export interface CroreScenario {
-  name: string;
+  scenario_name?: string;
+  scenario_label?: string;
+  name?: string;
   target_date: string | null;
+  target_month_iso?: string | null;
   months_to_target: number | null;
+  years_to_target?: number | null;
   assumed_return_pct: number;
   monthly_contribution: number;
-  annual_step_up_pct: number;
-  corpus_at_milestone: number;
+  annual_step_up_pct?: number;
+  annual_stepup_pct?: number;
+  corpus_at_milestone?: number;
+  projected_corpus_at_target?: number;
+  total_contributions?: number;
+  estimated_growth?: number;
+  growth_percentage?: number;
+  is_already_achieved?: boolean;
+  key_action?: string;
+  assumptions_summary?: string;
 }
 
 export interface CroreMilestone {
-  milestone_corpus: number;
   milestone_label: string;
-  reached_at_month: number | null;
-  reached_at_date: string | null;
-  is_already_reached: boolean;
+  target_amount?: number;
+  formatted_target?: string;
+  milestone_corpus?: number;
+  estimated_months?: number | null;
+  reached_at_month?: number | null;
+  estimated_date?: string | null;
+  reached_at_date?: string | null;
+  status?: 'ACHIEVED' | 'PROJECTED' | 'UNREACHABLE';
+  is_already_reached?: boolean;
+  required_monthly_contribution?: number;
+  corpus_at_milestone?: number;
 }
 
 export interface CroreSensitivityCell {
-  monthly_investment: number;
-  annual_return_pct: number;
+  contribution_multiplier?: number;
+  contribution_amount?: number;
+  monthly_investment?: number;
+  income_growth_pct?: number;
+  annual_return_pct?: number;
   months_to_target: number | null;
+  years_to_target?: number | null;
   target_date: string | null;
+  time_saved_months?: number;
 }
 
 export interface CroreCalculation {

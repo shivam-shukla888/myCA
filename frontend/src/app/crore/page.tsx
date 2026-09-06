@@ -353,26 +353,26 @@ export default function CrorePage() {
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                     <td style={{ padding: '14px 20px', fontWeight: 600 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>{s.name}</span>
+                        <span>{s?.scenario_label || s?.scenario_name || s?.name || tag}</span>
                         <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: tag === 'Fastest' ? 'rgba(16, 185, 129, 0.15)' : 'var(--canvas-surface)', color: tag === 'Fastest' ? '#10b981' : 'var(--ink-muted)' }}>
                           {tag}
                         </span>
                       </div>
                     </td>
                     <td style={{ padding: '14px 20px', fontWeight: 700, color: tag === 'Fastest' ? '#10b981' : 'var(--ink-primary)' }}>
-                      {s.target_date || 'Exceeds 60 Yrs'}
+                      {s?.target_date || 'Exceeds 60 Yrs'}
                     </td>
                     <td style={{ padding: '14px 20px', color: 'var(--ink-muted)' }}>
-                      {s.months_to_target ? `${s.months_to_target} mos (${(s.months_to_target / 12).toFixed(1)} yrs)` : 'N/A'}
+                      {s?.months_to_target ? `${s.months_to_target} mos (${(s.months_to_target / 12).toFixed(1)} yrs)` : 'N/A'}
                     </td>
                     <td style={{ padding: '14px 20px' }}>
-                      ₹{(s.monthly_contribution || 0).toLocaleString('en-IN')}
+                      ₹{(s?.monthly_contribution || 0).toLocaleString('en-IN')}
                     </td>
                     <td style={{ padding: '14px 20px' }}>
-                      {s.annual_step_up_pct}% / yr
+                      {s?.annual_step_up_pct ?? s?.annual_stepup_pct ?? 0}% / yr
                     </td>
                     <td style={{ padding: '14px 20px' }}>
-                      {s.assumed_return_pct}% p.a.
+                      {s?.assumed_return_pct ?? 12}% p.a.
                     </td>
                   </tr>
                 ))}
@@ -387,34 +387,52 @@ export default function CrorePage() {
         <div style={{ background: 'var(--canvas-elevated)', border: '1px solid var(--border-hairline)', borderRadius: '12px', padding: '24px' }}>
           <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 600 }}>Milestone Progression Map</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-            {milestones.map((m, idx) => (
-              <div
-                key={idx}
-                style={{
-                  padding: '16px',
-                  borderRadius: '8px',
-                  background: m.is_already_reached ? 'rgba(16, 185, 129, 0.06)' : 'var(--canvas-surface)',
-                  border: m.is_already_reached ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border-hairline)'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--ink-muted)' }}>
-                    {m.milestone_label}
-                  </span>
-                  {m.is_already_reached && (
-                    <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 700, textTransform: 'uppercase' }}>
-                      ACHIEVED
+            {milestones.map((m, idx) => {
+              const corpus = m.target_amount ?? m.milestone_corpus ?? 0;
+              const isReached = m.status === 'ACHIEVED' || Boolean(m.is_already_reached);
+              const targetDate = m.estimated_date ?? m.reached_at_date;
+              const months = m.estimated_months ?? m.reached_at_month;
+
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    padding: '16px',
+                    borderRadius: '8px',
+                    background: isReached ? 'rgba(16, 185, 129, 0.06)' : 'var(--canvas-surface)',
+                    border: isReached ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border-hairline)'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--ink-muted)' }}>
+                      {m.milestone_label}
                     </span>
+                    {isReached && (
+                      <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 700, textTransform: 'uppercase' }}>
+                        ACHIEVED
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink-primary)', marginBottom: '4px' }}>
+                    {m.formatted_target || `₹${corpus.toLocaleString('en-IN')}`}
+                  </div>
+                  <div style={{ fontSize: '12px', color: isReached ? '#10b981' : 'var(--ink-muted)' }}>
+                    {isReached
+                      ? 'Capital baseline reached'
+                      : targetDate
+                        ? `Projected: ${targetDate} (Month ${months ?? 'N/A'})`
+                        : m.status === 'UNREACHABLE'
+                          ? 'Out of reach in 60 yrs'
+                          : 'Simulating...'}
+                  </div>
+                  {m.required_monthly_contribution !== undefined && m.required_monthly_contribution > 0 && !isReached && (
+                    <div style={{ fontSize: '11px', color: 'var(--ink-tertiary)', marginTop: '6px' }}>
+                      Required SIP: ₹{Math.round(m.required_monthly_contribution).toLocaleString('en-IN')}/mo
+                    </div>
                   )}
                 </div>
-                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink-primary)', marginBottom: '4px' }}>
-                  ₹{(m.milestone_corpus).toLocaleString('en-IN')}
-                </div>
-                <div style={{ fontSize: '12px', color: m.is_already_reached ? '#10b981' : 'var(--ink-muted)' }}>
-                  {m.is_already_reached ? 'Capital baseline reached' : m.reached_at_date ? `Projected: ${m.reached_at_date} (Month ${m.reached_at_month})` : 'Simulating...'}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -430,31 +448,46 @@ export default function CrorePage() {
           </div>
           <div style={{ overflowX: 'auto', padding: '16px 20px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-              {sensitivity.map((cell, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    padding: '14px',
-                    borderRadius: '8px',
-                    background: 'var(--canvas-surface)',
-                    border: '1px solid var(--border-hairline)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px'
-                  }}
-                >
-                  <div style={{ fontSize: '11px', color: 'var(--ink-muted)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>SIP: ₹{cell.monthly_investment.toLocaleString('en-IN')}</span>
-                    <span style={{ fontWeight: 600 }}>{cell.annual_return_pct}% p.a.</span>
+              {sensitivity.map((cell, idx) => {
+                const monthlyInv = cell.contribution_amount ?? cell.monthly_investment ?? 0;
+                const multiplierPct = cell.contribution_multiplier !== undefined ? Math.round(cell.contribution_multiplier * 100) : null;
+                const stepUpOrReturn = cell.income_growth_pct !== undefined
+                  ? `${cell.income_growth_pct}% Step-up`
+                  : cell.annual_return_pct !== undefined
+                    ? `${cell.annual_return_pct}% p.a.`
+                    : '';
+
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '8px',
+                      background: 'var(--canvas-surface)',
+                      border: '1px solid var(--border-hairline)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', color: 'var(--ink-muted)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px' }}>
+                      <span>SIP: ₹{monthlyInv.toLocaleString('en-IN')}{multiplierPct ? ` (${multiplierPct}%)` : ''}</span>
+                      {stepUpOrReturn && <span style={{ fontWeight: 600 }}>{stepUpOrReturn}</span>}
+                    </div>
+                    <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--ink-primary)', marginTop: '4px' }}>
+                      {cell.target_date || 'Exceeds 60 Yrs'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--ink-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{cell.months_to_target ? `${cell.months_to_target} mos (${(cell.months_to_target / 12).toFixed(1)} yrs)` : 'N/A'}</span>
+                      {(cell.time_saved_months ?? 0) > 0 && (
+                        <span style={{ color: '#10b981', fontWeight: 600 }}>
+                          -{(((cell.time_saved_months ?? 0)) / 12).toFixed(1)} yrs
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--ink-primary)', marginTop: '4px' }}>
-                    {cell.target_date || 'Exceeds 60 Yrs'}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--ink-muted)' }}>
-                    {cell.months_to_target ? `${cell.months_to_target} months` : 'N/A'}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
