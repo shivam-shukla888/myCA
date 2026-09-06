@@ -69,8 +69,8 @@ export const authRateLimiter = rateLimiter({
 
 export const aiRateLimiter = rateLimiter({
   windowMs: 60 * 1000, // 1 minute
-  max: 15, // 15 inquiries / min
-  message: 'AI inquiry throughput exceeded. Limit is 15 requests per minute.',
+  max: process.env.NODE_ENV === 'test' ? 500 : 30, // 500 in test mode, 30 inquiries / min in production
+  message: 'AI inquiry throughput exceeded. Limit is 30 requests per minute.',
   keyPrefix: 'ai',
 });
 

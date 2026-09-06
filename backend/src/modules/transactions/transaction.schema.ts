@@ -72,7 +72,8 @@ export interface MonthlyFinancialSummary {
   total_income: number;
   total_expenses: number;
   monthly_surplus: number;
-  savings_rate: number; // percentage e.g. 35.71
+  is_deficit: boolean;
+  savings_rate: number; // percentage e.g. 35.71 (clamped to >= 0)
   total_transfers: number;
   currency: string;
   categories: MonthlyCategoryBreakdown[];

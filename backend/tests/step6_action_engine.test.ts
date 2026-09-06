@@ -10,6 +10,7 @@ import { actionService } from '../src/modules/action/action.service.js';
 import { allocationService } from '../src/modules/allocation/allocation.service.js';
 import { transactionService } from '../src/modules/transactions/transaction.service.js';
 import { FinancialGoal } from '../src/modules/allocation/allocation.schema.js';
+import { getSupabaseAdminClient } from '../src/config/supabase.js';
 
 const app = createApp();
 
@@ -476,6 +477,13 @@ async function runStep6ActionEngineTests() {
     // ======================================================================
     // 17. CROSS-USER ISOLATION
     // ======================================================================
+    try {
+      const supabase = getSupabaseAdminClient();
+      await supabase.from('transactions').delete().eq('user_id', USER_BOB);
+      await supabase.from('monthly_allocation_plans').delete().eq('user_id', USER_BOB);
+      await supabase.from('action_plans').delete().eq('user_id', USER_BOB);
+    } catch (_) {}
+
     // Set Bob profile and transactions
     await allocationService.upsertProfile(USER_BOB, {
       age: 28,

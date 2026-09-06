@@ -33,6 +33,8 @@ export interface ActionEngineInput {
     percentage: number;
   };
   overrides?: UserActionOverride;
+  canonicalSurplus?: number | null;
+  canonicalEmergencyFundTarget?: number | null;
 }
 
 /**
@@ -153,11 +155,13 @@ export function rankGoals(
  * Executes priority-driven deterministic allocation.
  */
 export function buildFinancialActionPlan(input: ActionEngineInput): ActionPlan {
-  const { month, income, expenses, profile, goals = [], freedomStatus, largestExpenseCategory, overrides } = input;
+  const { month, income, expenses, profile, goals = [], freedomStatus, largestExpenseCategory, overrides, canonicalSurplus, canonicalEmergencyFundTarget } = input;
 
   const safeIncome = round2(Math.max(income, 0));
   const safeExpenses = round2(Math.max(expenses, 0));
-  const monthlySurplus = round2(safeIncome - safeExpenses);
+  const monthlySurplus = canonicalSurplus !== undefined && canonicalSurplus !== null
+    ? round2(canonicalSurplus)
+    : round2(safeIncome - safeExpenses);
   const isDeficit = monthlySurplus < 0;
 
   const essentialExpenses = profile.monthly_essential_expenses && profile.monthly_essential_expenses > 0
@@ -166,7 +170,17 @@ export function buildFinancialActionPlan(input: ActionEngineInput): ActionPlan {
   const targetMonths = profile.emergency_fund_target_months || 6;
   const existingLiquidSavings = Number(profile.existing_liquid_savings || 0);
 
-  const emergencyFund = calculateEmergencyFund(essentialExpenses, targetMonths, existingLiquidSavings);
+  let emergencyFund = calculateEmergencyFund(essentialExpenses, targetMonths, existingLiquidSavings);
+  if (canonicalEmergencyFundTarget !== undefined && canonicalEmergencyFundTarget !== null) {
+    const target = round2(Math.max(canonicalEmergencyFundTarget, 0));
+    const gap = round2(Math.max(target - Math.max(existingLiquidSavings, 0), 0));
+    emergencyFund = {
+      ...emergencyFund,
+      emergency_fund_target: target,
+      emergency_fund_gap: gap,
+      is_complete: gap <= 0,
+    };
+  }
 
   // Freedom comparison
   const freedomRequiredContribution = freedomStatus?.required_monthly_contribution ?? 0;

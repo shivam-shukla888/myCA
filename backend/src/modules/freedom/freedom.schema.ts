@@ -42,6 +42,8 @@ export const freedomSimulationInputSchema = z
     expected_return: z.number().min(0, 'Expected return cannot be negative').max(40).optional(),
     withdrawal_rate: z.number().positive('Withdrawal rate must be positive').max(20).optional(),
     scenario: z.enum(['conservative', 'base', 'optimistic']).optional(),
+    target_month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Month must be in YYYY-MM format').optional(),
+    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Month must be in YYYY-MM format').optional(),
   })
   .refine(
     (data) => {
@@ -81,6 +83,7 @@ export interface FreedomScenarioResult {
 }
 
 export interface FreedomAnalysisResponse {
+  target_month: string;
   current_age: number;
   target_age: number;
   years_to_freedom: number;

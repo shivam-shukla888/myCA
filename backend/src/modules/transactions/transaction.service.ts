@@ -65,7 +65,8 @@ function computeMonthlySummary(month: string, transactions: TransactionRecord[])
   total_transfers = round2(total_transfers);
 
   const monthly_surplus = round2(total_income - total_expenses);
-  const savings_rate = total_income > 0 ? round2((monthly_surplus / total_income) * 100) : 0;
+  const is_deficit = monthly_surplus < 0;
+  const savings_rate = total_income > 0 ? Math.max(0, round2((monthly_surplus / total_income) * 100)) : 0;
 
   const categories: MonthlyCategoryBreakdown[] = Array.from(expenseCategoryMap.entries())
     .map(([cat, amt]) => {
@@ -86,6 +87,7 @@ function computeMonthlySummary(month: string, transactions: TransactionRecord[])
     total_income,
     total_expenses,
     monthly_surplus,
+    is_deficit,
     savings_rate,
     total_transfers,
     currency: 'INR',

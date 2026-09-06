@@ -17,7 +17,7 @@ export class ActionController {
     }
 
     const plan = await actionService.getActionPlanForMonth(userId, month);
-    res.status(200).json(plan);
+    res.status(200).json({ data: plan, ...plan });
   }
 
   async generatePlan(req: Request, res: Response): Promise<void> {
@@ -31,7 +31,7 @@ export class ActionController {
 
     const month = parseResult.data.month || this.getCurrentMonthStr();
     const plan = await actionService.generateActionPlan(userId, month, parseResult.data.overrides);
-    res.status(200).json(plan);
+    res.status(200).json({ data: plan, ...plan });
   }
 
   async confirmPlan(req: Request, res: Response): Promise<void> {
@@ -45,7 +45,7 @@ export class ActionController {
 
     const month = parseResult.data.month || this.getCurrentMonthStr();
     const confirmed = await actionService.confirmActionPlan(userId, month, parseResult.data.overrides);
-    res.status(201).json(confirmed);
+    res.status(201).json({ data: confirmed, ...confirmed });
   }
 
   async simulatePlan(req: Request, res: Response): Promise<void> {
@@ -58,7 +58,7 @@ export class ActionController {
     }
 
     const simulation = await actionService.simulateActionPlan(userId, parseResult.data);
-    res.status(200).json(simulation);
+    res.status(200).json({ data: simulation, ...simulation });
   }
 
   async getHistory(req: Request, res: Response): Promise<void> {

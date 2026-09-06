@@ -3,6 +3,7 @@ import { env } from '../../config/env.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { transactionService } from '../transactions/transaction.service.js';
 import { allocationService } from '../allocation/allocation.service.js';
+import { canonicalFinanceService } from '../finance/canonicalFinance.service.js';
 import { runFreedomAnalysis } from './freedom.engine.js';
 import {
   FreedomAnalysisResponse,
@@ -26,36 +27,37 @@ export class FreedomService {
   /**
    * Retrieves full financial freedom status based on stored profile and live transaction surplus
    */
-  async getFreedomStatus(userId: string): Promise<FreedomAnalysisResponse> {
+  async getFreedomStatus(userId: string, targetMonth?: string): Promise<FreedomAnalysisResponse> {
     if (!userId) throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
 
-    // 1. Fetch user's profile via allocationService
+    // 1. Fetch user's canonical financial state for requested cycle
+    const canonicalState = await canonicalFinanceService.getCanonicalFinancialState(userId, targetMonth);
     const profile = await allocationService.getProfile(userId);
 
-    // Baseline inputs from profile (or defaults)
-    const currentAge = profile?.age ?? 30;
-    const targetAge = profile?.target_retirement_age ?? 55;
-    const existingInvestments = Number(profile?.existing_investments ?? 0);
-    const liquidSavings = Number(profile?.existing_liquid_savings ?? 0);
+    // Baseline inputs from canonical state and profile (or defaults)
+    const currentAge = canonicalState.planning_profile.current_age ?? profile?.age ?? 30;
+    const targetAge = canonicalState.planning_profile.target_retirement_age ?? profile?.target_retirement_age ?? 55;
+    const existingInvestments = canonicalState.capital_and_savings.existing_investments ?? Number(profile?.existing_investments ?? 0);
+    const liquidSavings = canonicalState.capital_and_savings.liquid_savings ?? Number(profile?.existing_liquid_savings ?? 0);
     const emergencyMonthsTarget = Number(profile?.emergency_fund_target_months ?? 6);
 
-    // 2. Fetch current month's transaction summary to determine baseline monthly expenses and surplus
-    const now = new Date();
-    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const monthlySummary = await transactionService.getMonthlySummary(userId, currentMonthStr);
-
-    const monthlyExpenses = monthlySummary.total_expenses > 0
-      ? monthlySummary.total_expenses
-      : (profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 50000);
+    const monthlyExpenses = canonicalState.expenses.total_monthly_expenses ?? (
+      profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 50000
+    );
 
     const desiredMonthlyLifestyleIncome = Number(profile?.desired_monthly_lifestyle_income) > 0
       ? Number(profile?.desired_monthly_lifestyle_income)
       : monthlyExpenses;
 
-    const monthlySurplus = monthlySummary.monthly_surplus;
+    const monthlySurplus = canonicalState.cashflow.actual_monthly_surplus ?? 0;
+    const monthlyContribution = canonicalState.capital_and_savings.monthly_investment_capacity ?? (
+      monthlySurplus > 0 ? monthlySurplus : 0
+    );
 
     // Compute emergency fund target in currency
-    const emergencyFundTarget = (profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : monthlyExpenses) * emergencyMonthsTarget;
+    const emergencyFundTarget = canonicalState.capital_and_savings.emergency_fund_target ?? (
+      monthlyExpenses * emergencyMonthsTarget
+    );
 
     // 3. Extract planning assumptions (from profile or inMemoryAssumptions or fallback to Base preset)
     const storedAssumptions = inMemoryAssumptions.get(userId);
@@ -81,10 +83,11 @@ export class FreedomService {
         : preset.withdrawal_rate);
 
     return runFreedomAnalysis({
+      targetMonth: canonicalState.month,
       currentAge,
       targetAge,
       desiredMonthlyLifestyleIncome,
-      monthlyContribution: monthlySurplus,
+      monthlyContribution,
       existingLiquidSavings: liquidSavings,
       existingInvestments,
       emergencyFundTarget,
@@ -101,29 +104,27 @@ export class FreedomService {
   async simulate(userId: string, input: FreedomSimulationInput): Promise<FreedomAnalysisResponse> {
     if (!userId) throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
 
+    const requestedMonth = input.target_month || input.month;
+    const canonicalState = await canonicalFinanceService.getCanonicalFinancialState(userId, requestedMonth);
     const profile = await allocationService.getProfile(userId);
 
-    const currentAge = input.current_age ?? profile?.age ?? 30;
-    const targetAge = input.target_age ?? profile?.target_retirement_age ?? 55;
+    const currentAge = input.current_age ?? canonicalState.planning_profile.current_age ?? profile?.age ?? 30;
+    const targetAge = input.target_age ?? canonicalState.planning_profile.target_retirement_age ?? profile?.target_retirement_age ?? 55;
     if (targetAge <= currentAge) {
       throw new AppError('Target financial freedom age must be strictly greater than current age', 400, 'INVALID_INPUT');
     }
 
-    const existingInvestments = input.existing_investments ?? Number(profile?.existing_investments ?? 0);
-    const liquidSavings = input.existing_liquid_savings ?? Number(profile?.existing_liquid_savings ?? 0);
+    const existingInvestments = input.existing_investments ?? canonicalState.capital_and_savings.existing_investments ?? Number(profile?.existing_investments ?? 0);
+    const liquidSavings = input.existing_liquid_savings ?? canonicalState.capital_and_savings.liquid_savings ?? Number(profile?.existing_liquid_savings ?? 0);
     const emergencyMonthsTarget = Number(profile?.emergency_fund_target_months ?? 6);
 
     let monthlyContribution = input.monthly_contribution;
     let desiredMonthlyLifestyleIncome = input.desired_monthly_lifestyle_income;
 
     if (monthlyContribution === undefined || desiredMonthlyLifestyleIncome === undefined) {
-      const now = new Date();
-      const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const summary = await transactionService.getMonthlySummary(userId, currentMonthStr);
-
-      const baselineExpenses = summary.total_expenses > 0
-        ? summary.total_expenses
-        : (profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 50000);
+      const baselineExpenses = canonicalState.expenses.total_monthly_expenses ?? (
+        profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 50000
+      );
 
       if (desiredMonthlyLifestyleIncome === undefined) {
         desiredMonthlyLifestyleIncome = Number(profile?.desired_monthly_lifestyle_income) > 0
@@ -132,11 +133,16 @@ export class FreedomService {
       }
 
       if (monthlyContribution === undefined) {
-        monthlyContribution = summary.monthly_surplus;
+        monthlyContribution = canonicalState.capital_and_savings.monthly_investment_capacity ?? (
+          canonicalState.cashflow.actual_monthly_surplus !== null && canonicalState.cashflow.actual_monthly_surplus > 0
+            ? canonicalState.cashflow.actual_monthly_surplus
+            : 0
+        );
       }
     }
 
     const emergencyTarget = input.emergency_fund_target ??
+      canonicalState.capital_and_savings.emergency_fund_target ??
       ((profile?.monthly_essential_expenses ? Number(profile.monthly_essential_expenses) : 50000) * emergencyMonthsTarget);
 
     const storedAssumptions = inMemoryAssumptions.get(userId);
@@ -160,6 +166,7 @@ export class FreedomService {
       ((profile as any)?.planning_withdrawal_rate != null ? Number((profile as any).planning_withdrawal_rate) : preset.withdrawal_rate);
 
     return runFreedomAnalysis({
+      targetMonth: canonicalState.month,
       currentAge,
       targetAge,
       desiredMonthlyLifestyleIncome,

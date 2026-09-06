@@ -256,7 +256,8 @@ async function runMonthlyMoneyTests() {
     assert(u2s2.total_income === 30000, 'TEST 5E: User 2 income is 30,000');
     assert(u2s2.total_expenses === 45000, 'TEST 5F: User 2 expenses is 45,000');
     assert(u2s2.monthly_surplus === -15000, `TEST 5G: User 2 surplus is -15,000 (got ${u2s2.monthly_surplus})`);
-    assert(u2s2.savings_rate === -50, `TEST 5H: User 2 savings rate is -50.00% (got ${u2s2.savings_rate})`);
+    assert(u2s2.savings_rate === 0, `TEST 5H: User 2 savings rate is clamped to 0% on deficit (got ${u2s2.savings_rate})`);
+    assert(u2s2.is_deficit === true, `TEST 5H-2: User 2 is_deficit flag is true (got ${u2s2.is_deficit})`);
 
     // ----------------------------------------------------------------------
     // TEST 6: Strict Amount & Query Validation

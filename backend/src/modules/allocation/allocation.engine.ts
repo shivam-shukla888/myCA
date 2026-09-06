@@ -40,11 +40,15 @@ export function allocateMonthlySurplus(
   income: number,
   expenses: number,
   profile: Partial<FinancialProfile>,
-  goals: FinancialGoal[] = []
+  goals: FinancialGoal[] = [],
+  canonicalSurplus?: number | null,
+  canonicalEmergencyFundTarget?: number | null
 ): Omit<MonthlyAllocationPlan, 'id' | 'user_id' | 'created_at' | 'updated_at'> {
   const safeIncome = round2(Math.max(income, 0));
   const safeExpenses = round2(Math.max(expenses, 0));
-  const monthly_surplus = round2(safeIncome - safeExpenses);
+  const monthly_surplus = canonicalSurplus !== undefined && canonicalSurplus !== null
+    ? round2(canonicalSurplus)
+    : round2(safeIncome - safeExpenses);
   const is_deficit = monthly_surplus < 0;
 
   // Derive essential expenses: use profile value if provided, else fallback to safeExpenses
@@ -54,7 +58,17 @@ export function allocateMonthlySurplus(
   const targetMonths = profile.emergency_fund_target_months || 6;
   const existingSavings = profile.existing_liquid_savings || 0;
 
-  const emergencyFund = calculateEmergencyFund(essentialExpenses, targetMonths, existingSavings);
+  let emergencyFund = calculateEmergencyFund(essentialExpenses, targetMonths, existingSavings);
+  if (canonicalEmergencyFundTarget !== undefined && canonicalEmergencyFundTarget !== null) {
+    const target = round2(Math.max(canonicalEmergencyFundTarget, 0));
+    const gap = round2(Math.max(target - Math.max(existingSavings, 0), 0));
+    emergencyFund = {
+      ...emergencyFund,
+      emergency_fund_target: target,
+      emergency_fund_gap: gap,
+      is_complete: gap <= 0,
+    };
+  }
 
   // Active goals
   const activeGoals = goals.filter((g) => g.status === 'active');

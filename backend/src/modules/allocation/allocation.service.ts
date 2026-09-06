@@ -8,7 +8,7 @@ import {
   MonthlyAllocationPlan,
 } from './allocation.schema.js';
 import { allocateMonthlySurplus } from './allocation.engine.js';
-import { transactionService } from '../transactions/transaction.service.js';
+import { canonicalFinanceService } from '../finance/canonicalFinance.service.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../middleware/errorHandler.js';
@@ -332,20 +332,24 @@ export class AllocationService {
 
     const isProduction = env.NODE_ENV === 'production';
 
-    // 1. Fetch deterministic monthly financial summary from Phase 2
-    const summary = await transactionService.getMonthlySummary(userId, month);
+    // 1. Fetch deterministic canonical financial state
+    const canonicalState = await canonicalFinanceService.getCanonicalFinancialState(userId, month);
 
-    // 2. Fetch financial profile
-    const profile = (await this.getProfile(userId)) || {
+    const safeIncome = canonicalState.income.monthly_net_income ?? 0;
+    const safeExpenses = canonicalState.expenses.total_monthly_expenses ?? 0;
+
+    // 2. Fetch financial profile (or construct from canonical state)
+    const storedProfile = await this.getProfile(userId);
+    const profile: FinancialProfile = storedProfile || {
       user_id: userId,
-      monthly_income: summary.total_income,
-      monthly_essential_expenses: summary.total_expenses,
-      existing_liquid_savings: 0,
-      existing_investments: 0,
-      monthly_debt_obligations: 0,
-      dependents: 0,
-      has_health_insurance: false,
-      has_life_insurance: false,
+      monthly_income: safeIncome,
+      monthly_essential_expenses: canonicalState.expenses.essential_monthly_expenses ?? safeExpenses,
+      existing_liquid_savings: canonicalState.capital_and_savings.liquid_savings ?? 0,
+      existing_investments: canonicalState.capital_and_savings.existing_investments ?? 0,
+      monthly_debt_obligations: canonicalState.expenses.debt_payments ?? 0,
+      dependents: canonicalState.planning_profile.dependents ?? 0,
+      has_health_insurance: canonicalState.planning_profile.has_health_insurance ?? false,
+      has_life_insurance: canonicalState.planning_profile.has_life_insurance ?? false,
       emergency_fund_target_months: 6,
       desired_monthly_lifestyle_income: 0,
       created_at: new Date().toISOString(),
@@ -358,10 +362,12 @@ export class AllocationService {
     // 4. Run deterministic allocation engine
     const allocationResult = allocateMonthlySurplus(
       month,
-      summary.total_income,
-      summary.total_expenses,
+      safeIncome,
+      safeExpenses,
       profile,
-      goals
+      goals,
+      canonicalState.cashflow.actual_monthly_surplus,
+      canonicalState.capital_and_savings.emergency_fund_target
     );
 
     const now = new Date().toISOString();

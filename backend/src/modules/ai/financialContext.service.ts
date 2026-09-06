@@ -1,7 +1,7 @@
-import { transactionService } from '../transactions/transaction.service.js';
 import { allocationService } from '../allocation/allocation.service.js';
 import { freedomService } from '../freedom/freedom.service.js';
 import { actionService } from '../action/action.service.js';
+import { canonicalFinanceService } from '../finance/canonicalFinance.service.js';
 
 export interface AffordabilityEvaluation {
   proposed_amount: number;
@@ -34,11 +34,20 @@ export interface DeterministicFinancialContext {
   };
   financial_profile?: {
     age?: number;
-    essential_expenses?: number;
+    monthly_income?: number;
+    monthly_essential_expenses?: number;
+    monthly_debt_obligations?: number;
     existing_liquid_savings?: number;
     existing_investments?: number;
-    debt_obligations?: number;
     dependents?: number;
+    has_health_insurance?: boolean;
+    has_life_insurance?: boolean;
+    emergency_fund_target_months?: number;
+    target_retirement_age?: number;
+    desired_monthly_lifestyle_income?: number;
+    // Backward-compatibility aliases
+    essential_expenses?: number;
+    debt_obligations?: number;
     insurance_status?: {
       has_health_insurance: boolean;
       has_term_life_insurance: boolean;
@@ -52,8 +61,12 @@ export interface DeterministicFinancialContext {
       emergency_fund: number;
       goals: number;
       long_term: number;
+      long_term_wealth?: number;
       buffer: number;
+      flexible_buffer?: number;
+      total_allocated?: number;
     };
+    total_allocated?: number;
   };
   financial_freedom?: {
     current_wealth: number;
@@ -89,47 +102,50 @@ export interface DeterministicFinancialContext {
 export class FinancialContextService {
   /**
    * Deterministically pulls verified data from Phase 2, 3, and 4 engines
-   * without exposing secrets, internal tokens, or unnecessary PII.
+   * and Canonical Finance Service without exposing secrets or PII.
    */
   async buildDeterministicContext(
     userId: string,
     targetMonth?: string
   ): Promise<DeterministicFinancialContext> {
-    const now = new Date();
-    const month = targetMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const missing_data_reasons: string[] = [];
-
-    // 1. Monthly Money Data (Phase 2)
-    let summary: any = null;
+    // 0. Fetch Canonical Financial State
+    let canonicalState: any = null;
     try {
-      summary = await transactionService.getMonthlySummary(userId, month);
-    } catch (e: any) {
-      // PRODUCTION HARDENING: Log and flag when transaction data is unavailable.
-      // AI must know it's working with missing data, not real zeros.
-      console.error(`[FINANCIAL_CONTEXT] Transaction summary retrieval failed for user=${userId} month=${month}: ${e.message || e}`);
-      missing_data_reasons.push(`Transaction data unavailable for ${month}: ${e.message || 'database error'}`);
+      canonicalState = await canonicalFinanceService.getCanonicalFinancialState(userId, targetMonth);
+    } catch {
+      canonicalState = null;
     }
 
-    const income = summary?.total_income ?? 0;
-    const expenses = summary?.total_expenses ?? 0;
-    const surplus = summary?.monthly_surplus ?? 0;
-    const savingsRate = summary?.savings_rate ?? summary?.savings_rate_pct ?? (income > 0 ? Math.round(((surplus / income) * 100) * 100) / 100 : 0);
+    let month = canonicalState?.month || targetMonth;
+    if (!month) {
+      const now = new Date();
+      month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
+    const missing_data_reasons: string[] = [];
 
-    const categoryBreakdown = summary?.category_breakdown ?? [];
-    const topCategories = [...categoryBreakdown]
-      .sort((a: any, b: any) => Number(b.amount) - Number(a.amount))
-      .slice(0, 5)
-      .map((c: any) => ({
-        category: c.category || 'Uncategorized',
-        amount: Number(c.amount) || 0,
-        percentage: Number(c.percentage) || 0,
-      }));
+    // 1. Authoritative Financial State from Canonical Finance Service
+    const has_monthly_data = Boolean(canonicalState?.data_status.has_observed_transactions);
+    const income = canonicalState?.income.monthly_net_income ?? 0;
+    const expenses = canonicalState?.expenses.total_monthly_expenses ?? 0;
+    const surplus = canonicalState?.cashflow.actual_monthly_surplus ?? (income - expenses);
+    const savingsRate = canonicalState?.cashflow.savings_rate ?? (income > 0 ? Math.max(0, Math.round(((surplus / income) * 100) * 100) / 100) : 0);
 
-    const has_monthly_data = Boolean(
-      summary && (summary.total_income > 0 || summary.total_expenses > 0 || summary.transaction_count > 0)
-    );
-    if (!has_monthly_data) {
+    const topCategories = (canonicalState?.expenses.top_categories || []).slice(0, 5).map((c: any) => ({
+      category: c.category || 'Uncategorized',
+      amount: Number(c.amount) || 0,
+      percentage: Number(c.percentage) || 0,
+    }));
+
+    if (!has_monthly_data && canonicalState?.data_status.income_source === 'missing') {
       missing_data_reasons.push(`No recorded transaction summary found for month ${month}.`);
+    }
+
+    if (canonicalState?.missing_fields?.length > 0) {
+      for (const field of canonicalState.missing_fields) {
+        if (!missing_data_reasons.some((r) => r.includes(field))) {
+          missing_data_reasons.push(`Missing profile or ledger field: ${field}`);
+        }
+      }
     }
 
     // 2. Financial Profile (Phase 3)
@@ -190,7 +206,7 @@ export class FinancialContextService {
     // 5. Financial Freedom Status (Phase 4)
     let freedomStatus: any = null;
     try {
-      freedomStatus = await freedomService.getFreedomStatus(userId);
+      freedomStatus = await freedomService.getFreedomStatus(userId, month);
     } catch {
       // Freedom engine unavailable
     }
@@ -223,46 +239,69 @@ export class FinancialContextService {
     if (profile) {
       context.financial_profile = {
         age: profile.age,
-        essential_expenses: Number(profile.monthly_essential_expenses) || 0,
+        monthly_income: Number(profile.monthly_income) || 0,
+        monthly_essential_expenses: Number(profile.monthly_essential_expenses) || 0,
+        monthly_debt_obligations: Number(profile.monthly_debt_obligations) || 0,
         existing_liquid_savings: Number(profile.existing_liquid_savings) || 0,
         existing_investments: Number(profile.existing_investments) || 0,
-        debt_obligations: Number(profile.existing_debt_obligations) || 0,
-        dependents: profile.dependents_count || 0,
+        dependents: profile.dependents ?? 0,
+        has_health_insurance: Boolean(profile.has_health_insurance),
+        has_life_insurance: Boolean(profile.has_life_insurance),
+        emergency_fund_target_months: profile.emergency_fund_target_months ?? 6,
+        target_retirement_age: profile.target_retirement_age,
+        desired_monthly_lifestyle_income: Number(profile.desired_monthly_lifestyle_income) || 0,
+        // Legacy backward-compatibility aliases
+        essential_expenses: Number(profile.monthly_essential_expenses) || 0,
+        debt_obligations: Number(profile.monthly_debt_obligations) || 0,
         insurance_status: {
           has_health_insurance: Boolean(profile.has_health_insurance),
-          has_term_life_insurance: Boolean(profile.has_term_life_insurance),
+          has_term_life_insurance: Boolean(profile.has_life_insurance),
         },
       };
     }
 
     if (allocationPlan?.emergency_fund) {
+      const efAlloc = Number(allocationPlan.allocations?.emergency_fund) || 0;
+      const goalsAlloc = Number(allocationPlan.allocations?.goals) || 0;
+      const ltAlloc = Number(allocationPlan.allocations?.long_term_wealth) || 0;
+      const bufAlloc = Number(allocationPlan.allocations?.flexible_buffer) || 0;
+      const totalAlloc = Number(allocationPlan.allocations?.total_allocated) || (efAlloc + goalsAlloc + ltAlloc + bufAlloc);
+
       context.allocation = {
-        emergency_fund_target: Number(allocationPlan.emergency_fund.target_amount) || 0,
-        emergency_fund_current: Number(allocationPlan.emergency_fund.current_amount) || 0,
-        emergency_gap: Number(allocationPlan.emergency_fund.gap_amount) || 0,
+        emergency_fund_target: Number(allocationPlan.emergency_fund.emergency_fund_target) || 0,
+        emergency_fund_current: Number(allocationPlan.emergency_fund.existing_liquid_savings) || 0,
+        emergency_gap: Number(allocationPlan.emergency_fund.emergency_fund_gap) || 0,
         current_monthly_allocation: {
-          emergency_fund: Number(allocationPlan.allocations.emergency_fund) || 0,
-          goals: Number(allocationPlan.allocations.goals_total) || 0,
-          long_term: Number(allocationPlan.allocations.long_term_wealth) || 0,
-          buffer: Number(allocationPlan.allocations.unallocated_buffer) || 0,
+          emergency_fund: efAlloc,
+          goals: goalsAlloc,
+          long_term: ltAlloc,
+          long_term_wealth: ltAlloc,
+          buffer: bufAlloc,
+          flexible_buffer: bufAlloc,
+          total_allocated: totalAlloc,
         },
+        total_allocated: totalAlloc,
       };
-    } else if (profile) {
-      const essentialExpenses = Number(profile.monthly_essential_expenses) || expenses;
-      const targetMonths = Number(profile.emergency_fund_target_months) || 6;
-      const target = essentialExpenses * targetMonths;
-      const current = Number(profile.existing_liquid_savings) || 0;
+    } else if (profile || canonicalState?.capital_and_savings?.emergency_fund_target != null) {
+      const target = canonicalState?.capital_and_savings?.emergency_fund_target ??
+        ((Number(profile?.monthly_essential_expenses) || expenses) * (Number(profile?.emergency_fund_target_months) || 6));
+      const current = canonicalState?.capital_and_savings?.liquid_savings ?? (Number(profile?.existing_liquid_savings) || 0);
       const gap = Math.max(0, target - current);
+      const efAlloc = Math.min(surplus > 0 ? surplus : 0, gap);
       context.allocation = {
         emergency_fund_target: target,
         emergency_fund_current: current,
         emergency_gap: gap,
         current_monthly_allocation: {
-          emergency_fund: Math.min(surplus > 0 ? surplus : 0, gap),
+          emergency_fund: efAlloc,
           goals: 0,
           long_term: 0,
+          long_term_wealth: 0,
           buffer: 0,
+          flexible_buffer: 0,
+          total_allocated: efAlloc,
         },
+        total_allocated: efAlloc,
       };
     }
 

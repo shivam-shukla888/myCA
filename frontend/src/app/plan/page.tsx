@@ -89,18 +89,20 @@ export default function PlanPage() {
     setError(null);
     try {
       const plan = await actionApi.generatePlan(month, overrides);
-      setActionPlan(plan);
-      if (plan.user_overrides?.custom_emergency_allocation !== undefined) {
-        setOverrideEmergency(String(plan.user_overrides.custom_emergency_allocation));
-      }
-      if (plan.user_overrides?.custom_buffer_amount !== undefined) {
-        setOverrideBuffer(String(plan.user_overrides.custom_buffer_amount));
-      }
-      if (plan.user_overrides?.prioritized_goal_id) {
-        setOverridePrioritizedGoal(plan.user_overrides.prioritized_goal_id);
-      }
-      if (plan.user_overrides?.paused_goal_ids) {
-        setPausedGoals(plan.user_overrides.paused_goal_ids);
+      if (plan) {
+        setActionPlan(plan);
+        if (plan.user_overrides?.custom_emergency_allocation !== undefined) {
+          setOverrideEmergency(String(plan.user_overrides.custom_emergency_allocation));
+        }
+        if (plan.user_overrides?.custom_buffer_amount !== undefined) {
+          setOverrideBuffer(String(plan.user_overrides.custom_buffer_amount));
+        }
+        if (plan.user_overrides?.prioritized_goal_id) {
+          setOverridePrioritizedGoal(plan.user_overrides.prioritized_goal_id);
+        }
+        if (plan.user_overrides?.paused_goal_ids) {
+          setPausedGoals(plan.user_overrides.paused_goal_ids);
+        }
       }
       const actHistoryRes = await actionApi.getHistory().catch(() => []);
       setActionHistory(actHistoryRes || []);
@@ -154,7 +156,7 @@ export default function PlanPage() {
     setPlanLoading(true);
     actionApi.generatePlan(currentMonth)
       .then((plan) => {
-        if (!ignore) {
+        if (!ignore && plan) {
           setActionPlan(plan);
           if (plan.user_overrides?.custom_emergency_allocation !== undefined) {
             setOverrideEmergency(String(plan.user_overrides.custom_emergency_allocation));
@@ -168,6 +170,8 @@ export default function PlanPage() {
           if (plan.user_overrides?.paused_goal_ids) {
             setPausedGoals(plan.user_overrides.paused_goal_ids);
           }
+          setPlanLoading(false);
+        } else if (!ignore) {
           setPlanLoading(false);
         }
       })

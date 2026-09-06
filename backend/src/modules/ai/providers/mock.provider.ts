@@ -43,7 +43,9 @@ export class MockAIProvider implements AIProvider {
       return this.customHandler(prompt);
     }
 
-    const lower = prompt.toLowerCase();
+    const userInquiryMatch = prompt.match(/<user_inquiry>([\s\S]*?)<\/user_inquiry>/i);
+    const userQuestion = (userInquiryMatch ? userInquiryMatch[1] : prompt).trim().toLowerCase();
+    const lower = userQuestion;
 
     // Helper to extract JSON from XML tags
     const extractXmlBlock = (tag: string): any => {
@@ -58,19 +60,36 @@ export class MockAIProvider implements AIProvider {
       }
     };
 
-    const monthlyContext = extractXmlBlock('verified_monthly_money_context');
+    let monthlyContext = extractXmlBlock('verified_monthly_money_context');
+    if (!monthlyContext) {
+      const incMatch = prompt.match(/<monthly_income[^>]*>([\d.]+)/i);
+      const expMatch = prompt.match(/<monthly_expenses[^>]*>([\d.]+)/i);
+      const surMatch = prompt.match(/<monthly_surplus[^>]*>([\d.]+)/i);
+      const rateMatch = prompt.match(/<savings_rate_pct[^>]*>([\d.]+)/i);
+      if (incMatch || expMatch || surMatch) {
+        monthlyContext = {
+          income: incMatch ? parseFloat(incMatch[1]) : 0,
+          expenses: expMatch ? parseFloat(expMatch[1]) : 0,
+          surplus: surMatch ? parseFloat(surMatch[1]) : 0,
+          savings_rate_pct: rateMatch ? parseFloat(rateMatch[1]) : 0,
+          top_expense_categories: [],
+        };
+      }
+    }
+
     const allocationContext = extractXmlBlock('verified_savings_allocation_context');
     const freedomContext = extractXmlBlock('verified_financial_freedom_context');
     const affordabilityContext = extractXmlBlock('verified_affordability_context');
+    const croreContext = extractXmlBlock('verified_crore_path_context');
     const missingNotes = extractXmlBlock('missing_evidence_notes');
 
-    // 1. Missing information check
+    // 1. Missing information check (only trigger if the user's specific inquiry lacks the required data)
     if (
-      (lower.includes('emergency fund') && !allocationContext && lower.includes('missing')) ||
-      (missingNotes && missingNotes.length > 0 && lower.includes('reliable'))
+      (userQuestion.includes('emergency fund') && !allocationContext && userQuestion.includes('missing')) ||
+      ((!monthlyContext || (monthlyContext.income === 0 && monthlyContext.expenses === 0)) && missingNotes && missingNotes.length > 0 && (lower.includes('surplus') || lower.includes('savings rate') || lower.includes('1 crore') || lower.includes('mera') || lower.includes('meri')))
     ) {
       return {
-        answer: "I don't have enough information to answer this reliably. Please set up your financial profile and ensure transaction data is recorded.",
+        answer: "I don't have enough verified information about your income or expenses to answer this accurately. Please set up your financial profile and ensure your monthly income and expenses are recorded.",
         intent: 'PERSONAL_FINANCE',
         risk_level: 'LOW',
         confidence_score: 0.35,
@@ -79,7 +98,7 @@ export class MockAIProvider implements AIProvider {
         disclaimer_required: false,
         disclaimer: '',
         human_review_required: true,
-        refusal_or_limitation: null,
+        refusal_or_limitation: 'MISSING_DATA',
       };
     }
 
@@ -181,8 +200,23 @@ export class MockAIProvider implements AIProvider {
         };
       }
 
-      // 3C. "How much am I saving?"
-      if (lower.includes('how much am i saving') || lower.includes('how much am i saving this month')) {
+      // 3C. "How much am I saving?" or "What is my current monthly surplus and savings rate?"
+      if (
+        (lower.includes('how much am i saving') ||
+          lower.includes('how much am i saving this month') ||
+          lower.includes('surplus') ||
+          lower.includes('savings rate') ||
+          lower.includes('mera surplus') ||
+          lower.includes('meri savings rate')) &&
+        !lower.includes('review') &&
+        !lower.includes('pehle') &&
+        !lower.includes('share market') &&
+        !lower.includes('emergency') &&
+        !lower.includes('1 crore') &&
+        !lower.includes('1 cr') &&
+        !lower.includes('1cr') &&
+        !lower.includes('ek crore')
+      ) {
         return {
           answer: `This month, you are saving ₹${sur.toLocaleString('en-IN')} from a verified income of ₹${inc.toLocaleString('en-IN')} after expenses of ₹${exp.toLocaleString('en-IN')}.\n\nThis translates to a **${rate}% savings rate**.\n\n**Next Action:** ${emergencyGap > 0 ? `Allocate ₹${sur.toLocaleString('en-IN')} toward your emergency buffer gap of ₹${emergencyGap.toLocaleString('en-IN')}.` : 'Deploy surplus according to your target allocation plan.'}`,
           intent: 'PERSONAL_FINANCE',
@@ -340,6 +374,340 @@ export class MockAIProvider implements AIProvider {
       }
     }
 
+    // 4B. ₹1 Crore Shortest Path Queries
+    if (
+      lower.includes('1 crore') ||
+      lower.includes('1cr') ||
+      lower.includes('1 cr') ||
+      lower.includes('ek crore') ||
+      lower.includes('one crore') ||
+      lower.includes('kab banaunga') ||
+      lower.includes('kitne saal mein') ||
+      lower.includes('shortest path') ||
+      lower.includes('fastest path') ||
+      lower.includes('jaldi kaise')
+    ) {
+      if (croreContext) {
+        const cc = croreContext;
+        const baseDate = cc.base_case?.target_date || 'Unreachable within 60 years at current contribution';
+        const baseMonths = cc.base_case?.months_to_target;
+        const baseYears = baseMonths ? (baseMonths / 12).toFixed(1) : 'N/A';
+        const shortestDate = cc.shortest_modeled_path?.target_date || baseDate;
+        const rec = cc.lever_analysis?.recommended_change || 'Increase your monthly surplus';
+        const nextAction = cc.one_next_action || 'Maintain consistent monthly investing';
+
+        const sur = monthlyContext?.surplus ?? cc.current_monthly_contribution ?? 0;
+        const surplusIntro = sur > 0 ? `Your verified monthly surplus is **₹${Number(sur).toLocaleString('en-IN')}**.\n\n` : '';
+
+        return {
+          answer: `${surplusIntro}Based on your deterministic financial numbers, your estimated ₹1 Crore date is **${baseDate}** (${baseYears} years at ₹${Number(cc.current_monthly_contribution || 0).toLocaleString('en-IN')}/month contribution).\n\n**Fastest Modeled Path:** You can accelerate this timeline to **${shortestDate}**.\n\n**Highest-Impact Controllable Lever:** ${rec}.\n\n**ONE Next Action:** ${nextAction}\n\n*Note: These are deterministic mathematical projections based on an assumed ${cc.base_case?.assumed_return_pct ?? 12}% p.a. compounding rate, not guaranteed returns.*`,
+          intent: 'PERSONAL_FINANCE',
+          risk_level: 'LOW',
+          confidence_score: 0.96,
+          evidence: [
+            {
+              source_type: 'calculation',
+              claim: `Deterministic ₹1 Cr projection: Base case target date ${baseDate}, fastest modeled path ${shortestDate}.`,
+            },
+            {
+              source_type: 'monthly_summary',
+              claim: `Starting capital ₹${cc.starting_capital}, monthly contribution ₹${cc.current_monthly_contribution}.`,
+            },
+          ],
+          missing_information: [],
+          disclaimer_required: true,
+          disclaimer: 'DISCLAIMER: Educational mathematical projection based on explicit compounding assumptions. Returns are not guaranteed.',
+          human_review_required: false,
+          refusal_or_limitation: null,
+        };
+      }
+    }
+
+    // 4C. "Emergency fund kitna hona chahiye?"
+    if (
+      lower.includes('emergency fund kitna') ||
+      lower.includes('kitna hona chahiye') ||
+      lower.includes('how much emergency fund')
+    ) {
+      const target = allocationContext?.emergency_fund_target ?? 300000;
+      const current = allocationContext?.emergency_fund_current ?? 0;
+      const gap = allocationContext?.emergency_gap ?? target;
+      return {
+        answer: `Aapka emergency fund target ₹${target.toLocaleString('en-IN')} hai (3 se 6 mahine ke zaroori kharche). Current savings: ₹${current.toLocaleString('en-IN')}, Gap: ₹${gap.toLocaleString('en-IN')}.\n\n**Rule of Thumb:** Emergency buffer achanak aane wale medical ya cashflow shocks ke waqt aapke long-term investments ko surakshit rakhta hai taaki aapko karz na lena pade.`,
+        intent: 'PERSONAL_FINANCE',
+        risk_level: 'LOW',
+        confidence_score: 0.95,
+        evidence: [
+          {
+            source_type: 'allocation_plan',
+            claim: `Emergency target ₹${target}, gap ₹${gap}.`,
+          },
+        ],
+        missing_information: [],
+        disclaimer_required: false,
+        disclaimer: '',
+        human_review_required: false,
+        refusal_or_limitation: null,
+      };
+    }
+
+    // 4D. Guaranteed Returns Rejection
+    if (lower.includes('guarantee') || lower.includes('guaranteed return') || lower.includes('20% return')) {
+      return {
+        answer: 'There are no guaranteed returns in equity or market-linked investments. All investments are subject to market risks. SEBI regulations strictly prohibit promising guaranteed returns on securities. Any scheme or advisor promising guaranteed high returns is high-risk or non-compliant.',
+        intent: 'GENERAL_FINANCE',
+        risk_level: 'MEDIUM',
+        confidence_score: 0.98,
+        evidence: [
+          {
+            source_type: 'domain_knowledge',
+            claim: 'SEBI regulations and investment disclosure guidelines strictly prohibit guaranteed return assurances.',
+          },
+        ],
+        missing_information: [],
+        disclaimer_required: true,
+        disclaimer: 'DISCLAIMER: Investments are subject to market risks. No guaranteed returns exist in market-linked assets.',
+        human_review_required: false,
+        refusal_or_limitation: null,
+      };
+    }
+
+    // 4E. Loan for Stock Investing / Leverage Warning
+    if (
+      (lower.includes('loan') || lower.includes('karz') || lower.includes('borrow') || lower.includes('leverage')) &&
+      (lower.includes('invest') || lower.includes('stock') || lower.includes('share market') || lower.includes('shares'))
+    ) {
+      return {
+        answer: 'We strictly do not recommend taking a personal loan or debt to invest in the share market. Using leverage multiplies downside risk because loan EMIs and interest are fixed obligations, whereas equity returns are volatile and never guaranteed. Borrowing to invest creates dangerous risk of financial distress.',
+        intent: 'PERSONAL_FINANCE',
+        risk_level: 'HIGH',
+        confidence_score: 0.98,
+        evidence: [
+          {
+            source_type: 'domain_knowledge',
+            claim: 'Prudent financial planning principles strictly discourage borrowing unsecured personal loans for market investments.',
+          },
+        ],
+        missing_information: [],
+        disclaimer_required: true,
+        disclaimer: 'DISCLAIMER: Never borrow money or take personal loans to invest in volatile assets.',
+        human_review_required: false,
+        refusal_or_limitation: null,
+      };
+    }
+
+    // Helper to extract evidence chunks
+    const chunkMatches = prompt.matchAll(/<chunk id="([^"]*)" source="([^"]*)" authority_tier="([^"]*)"[^>]*>[\s\S]*?<headline>([\s\S]*?)<\/headline>[\s\S]*?<content>([\s\S]*?)<\/content>[\s\S]*?<\/chunk>/gi);
+    const evidenceChunks: Array<{ id: string; source: string; tier: number; headline: string; content: string }> = [];
+    for (const m of chunkMatches) {
+      evidenceChunks.push({
+        id: m[1],
+        source: m[2],
+        tier: parseInt(m[3], 10) || 4,
+        headline: m[4].trim(),
+        content: m[5].trim(),
+      });
+    }
+
+    // 4A. Hinglish Financial Priority / Decision Coaching
+    if (
+      (userQuestion.includes('emergency fund') || userQuestion.includes('emergency')) &&
+      (userQuestion.includes('share market') || userQuestion.includes('stock market') || userQuestion.includes('nivesh') || userQuestion.includes('lagau')) &&
+      (userQuestion.includes('pehle') || userQuestion.includes('surplus'))
+    ) {
+      return {
+        answer: 'Aapko pehle apna emergency fund safety buffer banau chahiye. Share market me surplus invest karne se pehle 3 se 6 mahine ke zaroori kharche ka emergency reserve tayar karna mathematical aur psychological safety rule hai. Isse aapko market crash ke dauran share bechne ki naubat nahi aayegi.',
+        intent: 'PERSONAL_FINANCE',
+        risk_level: 'LOW',
+        confidence_score: 0.95,
+        evidence: [
+          {
+            source_type: 'domain_knowledge',
+            claim: 'Emergency liquidity priority over market risk allocation',
+          },
+        ],
+        missing_information: [],
+        disclaimer_required: false,
+        disclaimer: '',
+        human_review_required: false,
+        refusal_or_limitation: null,
+      };
+    }
+
+    // 4B. Grounded Knowledge Chunk Utilization
+    if (evidenceChunks.length > 0) {
+      // Income Tax / Slabs / Standard Deduction / 87A Rebate / 80C
+      const taxChunk = evidenceChunks.find((c) => c.source.toLowerCase().includes('income tax') || c.content.toLowerCase().includes('section 115bac'));
+      if (taxChunk && (lower.includes('standard deduction') || lower.includes('75,000') || lower.includes('87a') || lower.includes('rebate') || lower.includes('80c') || lower.includes('new tax regime') || lower.includes('115bac') || lower.includes('deduction'))) {
+        if (lower.includes('80c') && (lower.includes('new tax regime') || lower.includes('apply'))) {
+          return {
+            answer: 'Under Section 115BAC of the default new tax regime, deductions under Section 80C (PPF, ELSS, life insurance) are not allowable. The new tax regime provides simplified lower tax slabs and an enhanced standard deduction of ₹75,000 instead of Chapter VI-A deductions.',
+            intent: 'TAX_QUERY',
+            risk_level: 'MEDIUM',
+            confidence_score: 0.95,
+            evidence: [
+              {
+                source_type: 'domain_knowledge',
+                source_id: taxChunk.id,
+                claim: taxChunk.headline,
+              },
+            ],
+            missing_information: [],
+            disclaimer_required: true,
+            disclaimer: 'DISCLAIMER: Factual statutory information based on official Income Tax provisions.',
+            human_review_required: false,
+            refusal_or_limitation: null,
+          };
+        }
+
+        if (lower.includes('87a') || lower.includes('rebate')) {
+          return {
+            answer: 'Under Section 87A of the Income Tax Act for FY 2025-26 under the new tax regime, resident individuals with total taxable income up to ₹7,00,000 are eligible for a full tax rebate of up to ₹25,000, resulting in zero net income tax liability.',
+            intent: 'TAX_QUERY',
+            risk_level: 'MEDIUM',
+            confidence_score: 0.95,
+            evidence: [
+              {
+                source_type: 'domain_knowledge',
+                source_id: taxChunk.id,
+                claim: taxChunk.headline,
+              },
+            ],
+            missing_information: [],
+            disclaimer_required: true,
+            disclaimer: 'DISCLAIMER: Factual statutory information based on official Income Tax provisions.',
+            human_review_required: false,
+            refusal_or_limitation: null,
+          };
+        }
+
+        return {
+          answer: 'Under Section 115BAC default new tax regime for FY 2025-26, the statutory standard deduction for salaried individuals is ₹75,000 (increased from ₹50,000). Salaried employees can claim this deduction without submitting investment proofs.',
+          intent: 'TAX_QUERY',
+          risk_level: 'MEDIUM',
+          confidence_score: 0.95,
+          evidence: [
+            {
+              source_type: 'domain_knowledge',
+              source_id: taxChunk.id,
+              claim: taxChunk.headline,
+            },
+          ],
+          missing_information: [],
+          disclaimer_required: true,
+          disclaimer: 'DISCLAIMER: Factual statutory information based on official Income Tax provisions.',
+          human_review_required: false,
+          refusal_or_limitation: null,
+        };
+      }
+
+      // SEBI Regulatory Chunk
+      const sebiChunk = evidenceChunks.find((c) => c.source.toLowerCase().includes('sebi') || c.content.toLowerCase().includes('investment adviser'));
+      if (sebiChunk && (lower.includes('sebi') || lower.includes('adviser') || lower.includes('fee cap') || lower.includes('advisory'))) {
+        return {
+          answer: 'Under official SEBI regulations for investment advisers, the maximum annual advisory fee cap for individuals is ₹1,25,000 per annum or 2.5% of AUA per family across all services. SEBI strictly forbids promises of guaranteed returns.',
+          intent: 'INVESTMENT_EDUCATION',
+          risk_level: 'LOW',
+          confidence_score: 0.95,
+          evidence: [
+            {
+              source_type: 'domain_knowledge',
+              source_id: sebiChunk.id,
+              claim: sebiChunk.headline,
+            },
+          ],
+          missing_information: [],
+          disclaimer_required: true,
+          disclaimer: 'DISCLAIMER: Educational information. The platform is not a SEBI-registered Investment Adviser.',
+          human_review_required: false,
+          refusal_or_limitation: null,
+        };
+      }
+
+      // Behavioral Finance (Morgan Housel / Psychology of Money)
+      const psychChunk = evidenceChunks.find((c) => c.source.toLowerCase().includes('psychology') || c.content.toLowerCase().includes('housel') || c.content.toLowerCase().includes('behavior'));
+      if (psychChunk && (lower.includes('housel') || lower.includes('psychology of money') || lower.includes('premise'))) {
+        return {
+          answer: "According to Morgan Housel's framework in *The Psychology of Money*, doing well with money has a little to do with how smart you are and a lot to do with how you behave. Financial success is driven by emotional discipline, patience, and avoiding catastrophic mistakes rather than mathematical optimization.",
+          intent: 'GENERAL_FINANCE',
+          risk_level: 'LOW',
+          confidence_score: 0.90,
+          evidence: [
+            {
+              source_type: 'domain_knowledge',
+              source_id: psychChunk.id,
+              claim: psychChunk.headline,
+            },
+          ],
+          missing_information: [],
+          disclaimer_required: false,
+          disclaimer: '',
+          human_review_required: false,
+          refusal_or_limitation: null,
+        };
+      }
+
+      // RBI DICGC Deposit Insurance Chunk
+      const rbiChunk = evidenceChunks.find((c) => c.source.toLowerCase().includes('rbi') || c.source.toLowerCase().includes('dicgc') || c.content.toLowerCase().includes('dicgc') || c.content.toLowerCase().includes('5,00,000'));
+      if (rbiChunk && (lower.includes('dicgc') || lower.includes('deposit insurance') || lower.includes('protected') || lower.includes('bank fails') || lower.includes('limit per depositor'))) {
+        return {
+          answer: 'Under statutory Deposit Insurance and Credit Guarantee Corporation (DICGC) regulations overseen by the Reserve Bank of India (RBI), each depositor is insured up to a maximum limit of ₹5,00,000 (Rupees Five Lakhs) for both principal and interest across all accounts held in an insured commercial or cooperative bank.',
+          intent: 'GENERAL_FINANCE',
+          risk_level: 'LOW',
+          confidence_score: 0.95,
+          evidence: [
+            {
+              source_type: 'domain_knowledge',
+              source_id: rbiChunk.id,
+              claim: rbiChunk.headline,
+            },
+          ],
+          missing_information: [],
+          disclaimer_required: true,
+          disclaimer: 'DISCLAIMER: Statutory deposit insurance information under RBI regulations.',
+          human_review_required: false,
+          refusal_or_limitation: null,
+        };
+      }
+
+      // Indian Financial Ecosystem Regulators (RBI, SEBI, IRDAI)
+      const ecoChunk = evidenceChunks.find(
+        (c) =>
+          c.source.toLowerCase().includes('financial system') ||
+          c.source.toLowerCase().includes('ecosystem') ||
+          c.id.includes('in-financial-ecosystem') ||
+          c.content.toLowerCase().includes('reserve bank of india') ||
+          c.content.toLowerCase().includes('securities and exchange')
+      );
+      if (
+        ecoChunk &&
+        (lower.includes('authorities') ||
+          lower.includes('overseeing') ||
+          lower.includes('regulators') ||
+          lower.includes('regulatory') ||
+          lower.includes('banking, securities'))
+      ) {
+        return {
+          answer: 'In India, the primary financial regulatory authorities are: 1. The Reserve Bank of India (RBI) overseeing banking, currency, and monetary policy; 2. The Securities and Exchange Board of India (SEBI) regulating securities, stock exchanges, and mutual funds; and 3. The Insurance Regulatory and Development Authority of India (IRDAI) regulating the insurance industry.',
+          intent: 'GENERAL_FINANCE',
+          risk_level: 'LOW',
+          confidence_score: 0.95,
+          evidence: [
+            {
+              source_type: 'domain_knowledge',
+              source_id: ecoChunk.id,
+              claim: ecoChunk.headline,
+            },
+          ],
+          missing_information: [],
+          disclaimer_required: false,
+          disclaimer: '',
+          human_review_required: false,
+          refusal_or_limitation: null,
+        };
+      }
+    }
+
     // 5. Investment Education
     if (lower.includes('mutual fund') || lower.includes('equity') || lower.includes('debt') || lower.includes('asset allocation')) {
       return {
@@ -361,7 +729,7 @@ export class MockAIProvider implements AIProvider {
       };
     }
 
-    // 6. Tax Queries
+    // 6. Tax Queries Fallback
     if (lower.includes('deduction') || lower.includes('80d') || lower.includes('80c') || lower.includes('income tax') || lower.includes('tax regime')) {
       return {
         answer: 'Under Section 80D of the Indian Income Tax Act, premiums paid for health insurance for self and family are deductible up to ₹25,000 (or ₹50,000 for senior citizens).',

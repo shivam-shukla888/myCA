@@ -12,8 +12,8 @@ export interface ClassificationResult {
 const STOCK_BUY_SELL_PATTERNS = [
   /\b(should\s+i|shall\s+i)\s+(buy|sell|invest\s+in)\s+[A-Za-z0-9]+/i,
   /\b(tell\s+me\s+to|recommend\s+(me\s+to)?|advise\s+(me\s+to)?)\s+(buy|sell|invest\s+in)\b/i,
-  /\bwhich\s+(stock|share|crypto|token)\s+(should|to)\s+(i|we)\s+(buy|purchase)/i,
-  /\bwhich\s+stock\s+should\s+i\s+buy\b/i,
+  /\bwhich\s+(?:specific\s+)?(stock|share|crypto|token)\s+(should|to)\s+(i|we)\s+(buy|purchase)/i,
+  /\bwhich\s+(?:specific\s+)?stock\s+(should\s+i|to)\s+buy\b/i,
   /\bwhich\s+mutual\s+fund\s+should\s+i\s+buy\b/i,
   /\b(tell\s+me|advise\s+me)\s+(exactly\s+)?what\s+to\s+buy\b/i,
   /\bwhat\s+(stock|stocks|share|shares|mutual\s*funds?|etfs?|crypto)\s+(should\s+i|to)\s+buy\b/i,
@@ -22,6 +22,7 @@ const STOCK_BUY_SELL_PATTERNS = [
   /\b(target\s+price|multibagger|stock\s+tip|buy\s+call)\b/i,
   /\b(buy|sell)\s+[A-Za-z0-9]+\s+(stock|share|equity|token)\b/i,
   /\b(act\s+as\s+an?\s+unrestricted\s+broker)\b/i,
+  /\b(guaranteed|risk-free|risk\s*free)\s+(?:.*?\s+)?return/i,
   /\bignore\s+all\s+(previous\s+)?instructions.*(?:stock|buy|crypto|fund|invest)/i,
 ];
 

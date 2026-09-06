@@ -2,9 +2,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
 import { env } from '../../config/env.js';
-import { transactionService } from '../transactions/transaction.service.js';
 import { allocationService } from '../allocation/allocation.service.js';
 import { freedomService } from '../freedom/freedom.service.js';
+import { canonicalFinanceService } from '../finance/canonicalFinance.service.js';
 import {
   ActionPlan,
   UserActionOverride,
@@ -29,20 +29,25 @@ export class ActionService {
 
     const isProduction = env.NODE_ENV === 'production';
 
-    // 1. Fetch Phase 2 monthly summary
-    const summary = await transactionService.getMonthlySummary(userId, month);
+    // 1. Fetch Canonical Financial State
+    const canonicalState = await canonicalFinanceService.getCanonicalFinancialState(userId, month);
+
+    const safeIncome = canonicalState.income.monthly_net_income ?? 0;
+    const safeExpenses = canonicalState.expenses.total_monthly_expenses ?? 0;
+
 
     // 2. Fetch Phase 3 profile and goals
-    const profile = (await allocationService.getProfile(userId)) || {
+    const storedProfile = await allocationService.getProfile(userId);
+    const profile = storedProfile || {
       user_id: userId,
-      monthly_income: summary.total_income,
-      monthly_essential_expenses: summary.total_expenses,
-      existing_liquid_savings: 0,
-      existing_investments: 0,
-      monthly_debt_obligations: 0,
-      dependents: 0,
-      has_health_insurance: false,
-      has_life_insurance: false,
+      monthly_income: safeIncome,
+      monthly_essential_expenses: canonicalState.expenses.essential_monthly_expenses ?? safeExpenses,
+      existing_liquid_savings: canonicalState.capital_and_savings.liquid_savings ?? 0,
+      existing_investments: canonicalState.capital_and_savings.existing_investments ?? 0,
+      monthly_debt_obligations: canonicalState.expenses.debt_payments ?? 0,
+      dependents: canonicalState.planning_profile.dependents ?? 0,
+      has_health_insurance: canonicalState.planning_profile.has_health_insurance ?? false,
+      has_life_insurance: canonicalState.planning_profile.has_life_insurance ?? false,
       emergency_fund_target_months: 6,
       desired_monthly_lifestyle_income: 0,
       created_at: new Date().toISOString(),
@@ -54,7 +59,7 @@ export class ActionService {
     // 3. Fetch Phase 4 freedom status
     let freedomStatus: ActionEngineInput['freedomStatus'] = undefined;
     try {
-      const freedom = await freedomService.getFreedomStatus(userId);
+      const freedom = await freedomService.getFreedomStatus(userId, month);
       freedomStatus = {
         indicative_target_corpus: freedom.active_scenario.indicative_target_corpus,
         projected_wealth: freedom.active_scenario.projected_wealth_at_target_age,
@@ -77,12 +82,10 @@ export class ActionService {
       };
     }
 
-    // Extract largest spending category
+    // Extract largest spending category directly from canonical state
     let largestExpenseCategory: ActionEngineInput['largestExpenseCategory'] = undefined;
-    if (summary.largest_expense_category) {
-      largestExpenseCategory = summary.largest_expense_category;
-    } else if (summary.categories && summary.categories.length > 0) {
-      const top = summary.categories[0];
+    if (canonicalState.expenses.top_categories.length > 0) {
+      const top = canonicalState.expenses.top_categories[0];
       largestExpenseCategory = {
         category: top.category,
         amount: top.amount,
@@ -92,12 +95,14 @@ export class ActionService {
 
     const baseInput: ActionEngineInput = {
       month,
-      income: summary.total_income,
-      expenses: summary.total_expenses,
+      income: safeIncome,
+      expenses: safeExpenses,
       profile,
       goals,
       freedomStatus,
       largestExpenseCategory,
+      canonicalSurplus: canonicalState.cashflow.actual_monthly_surplus,
+      canonicalEmergencyFundTarget: canonicalState.capital_and_savings.emergency_fund_target,
     };
 
     // Calculate baseline plan
@@ -283,20 +288,23 @@ export class ActionService {
     const now = new Date();
     const month = input.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    // 1. Base monthly summary
-    const summary = await transactionService.getMonthlySummary(userId, month);
+    // 1. Base canonical financial state
+    const canonicalState = await canonicalFinanceService.getCanonicalFinancialState(userId, month);
+    const baseIncome = canonicalState.income.monthly_net_income ?? 0;
+    const baseExpenses = canonicalState.expenses.total_monthly_expenses ?? 0;
 
     // 2. Base profile
-    const profile = (await allocationService.getProfile(userId)) || {
+    const storedProfile = await allocationService.getProfile(userId);
+    const profile = storedProfile || {
       user_id: userId,
-      monthly_income: summary.total_income,
-      monthly_essential_expenses: summary.total_expenses,
-      existing_liquid_savings: 0,
-      existing_investments: 0,
-      monthly_debt_obligations: 0,
-      dependents: 0,
-      has_health_insurance: false,
-      has_life_insurance: false,
+      monthly_income: baseIncome,
+      monthly_essential_expenses: canonicalState.expenses.essential_monthly_expenses ?? baseExpenses,
+      existing_liquid_savings: canonicalState.capital_and_savings.liquid_savings ?? 0,
+      existing_investments: canonicalState.capital_and_savings.existing_investments ?? 0,
+      monthly_debt_obligations: canonicalState.expenses.debt_payments ?? 0,
+      dependents: canonicalState.planning_profile.dependents ?? 0,
+      has_health_insurance: canonicalState.planning_profile.has_health_insurance ?? false,
+      has_life_insurance: canonicalState.planning_profile.has_life_insurance ?? false,
       emergency_fund_target_months: 6,
       desired_monthly_lifestyle_income: 0,
       created_at: new Date().toISOString(),
@@ -308,9 +316,9 @@ export class ActionService {
     // 3. Apply simulated deltas
     const surplusDelta = Number(input.surplus_delta) || 0;
     const expenseDelta = Number(input.expense_delta) || 0;
-    const simulatedIncome = round2(summary.total_income + (surplusDelta > 0 ? surplusDelta : 0));
+    const simulatedIncome = round2(baseIncome + (surplusDelta > 0 ? surplusDelta : 0));
     const simulatedExpenses = round2(
-      summary.total_expenses + expenseDelta - (surplusDelta < 0 ? surplusDelta : 0)
+      baseExpenses + expenseDelta - (surplusDelta < 0 ? surplusDelta : 0)
     );
 
     const simulatedProfile: Partial<typeof profile> = {
@@ -320,7 +328,7 @@ export class ActionService {
 
     let freedomStatus: ActionEngineInput['freedomStatus'] = undefined;
     try {
-      const freedom = await freedomService.getFreedomStatus(userId);
+      const freedom = await freedomService.getFreedomStatus(userId, month);
       freedomStatus = {
         indicative_target_corpus: freedom.active_scenario.indicative_target_corpus,
         projected_wealth: freedom.active_scenario.projected_wealth_at_target_age,

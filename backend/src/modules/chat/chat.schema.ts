@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const sendChatSchema = z.object({
-  message: z.string().min(1, 'Message is required').max(2000, 'Message cannot exceed 2000 characters'),
+  message: z.string().trim().min(1, 'Message is required').max(2000, 'Message cannot exceed 2000 characters'),
   conversation_id: z.string().uuid('Invalid conversation UUID').optional(),
   context_type: z.enum([
     'transaction_analysis',

@@ -4,16 +4,26 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
-import { Compass, BookOpen, Target, FileText, Cpu, FileCheck, ShieldAlert, LogOut, UserCheck } from 'lucide-react';
+import { Compass, BookOpen, Target, FileText, Cpu, FileCheck, ShieldAlert, LogOut, UserCheck, TrendingUp, Sparkles } from 'lucide-react';
 
-export const MODES = [
-  { id: 'surface', label: 'SURFACE', href: '/', hint: 'Financial terrain & positions', icon: Compass },
-  { id: 'ledger', label: 'LEDGER', href: '/ledger', hint: 'Temporal event stream', icon: BookOpen },
-  { id: 'plan', label: 'PLAN', href: '/plan', hint: 'Surplus allocation & freedom', icon: Target },
-  { id: 'vault', label: 'VAULT', href: '/vault', hint: 'Evidence & documents archive', icon: FileText },
-  { id: 'intelligence', label: 'INTELLIGENCE', href: '/intelligence', hint: 'Analytical decision desk', icon: Cpu },
-  { id: 'statements', label: 'STATEMENTS', href: '/statements', hint: 'Fiscal reports & filings', icon: FileCheck },
-  { id: 'audit', label: 'AUDIT', href: '/admin/audit', hint: 'Regulatory compliance ledger', icon: ShieldAlert, adminOnly: true },
+export interface NavigationMode {
+  id: string;
+  label: string;
+  href: string;
+  hint: string;
+  icon: any;
+  adminOnly?: boolean;
+}
+
+export const MODES: NavigationMode[] = [
+  { id: 'surface', label: 'HOME', href: '/', hint: 'Financial overview', icon: Compass },
+  { id: 'ledger', label: 'MONEY', href: '/ledger', hint: 'Income & expenses', icon: BookOpen },
+  { id: 'crore', label: '₹1 CRORE', href: '/crore', hint: 'Shortest path to ₹1 Cr', icon: TrendingUp },
+  { id: 'plan', label: 'GOALS', href: '/plan', hint: 'Goal planning', icon: Target },
+  { id: 'myca', label: 'MYCA', href: '/intelligence', hint: 'Ask your AI coach', icon: Sparkles },
+  { id: 'vault', label: 'VAULT', href: '/vault', hint: 'Document archive', icon: FileText },
+  { id: 'statements', label: 'STATEMENTS', href: '/statements', hint: 'Tax computation dossier', icon: FileCheck },
+  { id: 'audit', label: 'AUDIT LOGS', href: '/admin/audit', hint: 'Regulatory security audit', icon: ShieldAlert, adminOnly: true },
 ];
 
 export function CommandSpine() {

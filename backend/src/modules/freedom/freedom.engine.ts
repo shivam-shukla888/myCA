@@ -197,6 +197,7 @@ export function calculateScenario(params: CalculateScenarioParams): FreedomScena
 }
 
 export interface RunFreedomAnalysisParams {
+  targetMonth?: string;
   currentAge: number;
   targetAge: number;
   desiredMonthlyLifestyleIncome: number;
@@ -215,6 +216,7 @@ export interface RunFreedomAnalysisParams {
  */
 export function runFreedomAnalysis(params: RunFreedomAnalysisParams): FreedomAnalysisResponse {
   const {
+    targetMonth,
     currentAge,
     targetAge,
     desiredMonthlyLifestyleIncome,
@@ -282,6 +284,7 @@ export function runFreedomAnalysis(params: RunFreedomAnalysisParams): FreedomAna
       : baseResult;
 
   return {
+    target_month: targetMonth || new Date().toISOString().slice(0, 7),
     current_age: currentAge,
     target_age: targetAge,
     years_to_freedom: years,

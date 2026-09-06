@@ -3,6 +3,7 @@
 :root {
   /* Material Surface Tokens - Warm Paper & Deep Carbon Ink */
   --canvas-primary: #F7F6F2;
+  --canvas-base: #F7F6F2;
   --canvas-surface: #FFFFFF;
   --canvas-elevated: #FAF9F6;
   --canvas-inset: #EEECE6;
@@ -12,6 +13,7 @@
   --ink-primary: #121518;
   --ink-secondary: #4E5660;
   --ink-tertiary: #848D99;
+  --ink-muted: #6B7280;
   --ink-faint: #B5BCC4;
   --ink-inverted: #F7F6F2;
 
@@ -27,6 +29,8 @@
   --signal-forest-soft: #EDF6F1;
   --signal-terracotta: #A53924; /* Liability / Tax obligation / Outflow */
   --signal-terracotta-soft: #F9EFEB;
+  --signal-alert: #D32F2F;      /* System error / Deficit alert */
+  --signal-alert-soft: #FDE8E8;
 
   /* Font Families */
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;

@@ -4,7 +4,7 @@ import { financialContextService } from '../ai/financialContext.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 
 export class ChatService {
-  async processChatMessage(userId: string, input: SendChatInput) {
+  async processChatMessage(userId: string, input: SendChatInput, options?: { includeAdvancedDetails?: boolean }) {
     if (!userId) {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }

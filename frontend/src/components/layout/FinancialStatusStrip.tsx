@@ -9,10 +9,13 @@ export function FinancialStatusStrip() {
 
   let modeName = 'SURFACE / FINANCIAL TERRAIN';
   if (pathname.includes('ledger')) modeName = 'LEDGER / TEMPORAL STREAM';
+  else if (pathname.includes('crore')) modeName = '₹1 CRORE / SHORTEST PATH';
+  else if (pathname.includes('plan')) modeName = 'GOALS / ACTION ENGINE';
+  else if (pathname.includes('intelligence')) modeName = 'MYCA / AI FINANCIAL COACH';
   else if (pathname.includes('vault')) modeName = 'VAULT / EVIDENCE ARCHIVE';
-  else if (pathname.includes('intelligence')) modeName = 'INTELLIGENCE / DECISION DESK';
   else if (pathname.includes('statements')) modeName = 'STATEMENTS / FISCAL DOSSIER';
-  else if (pathname.includes('audit')) modeName = 'ADMIN / REGULATORY AUDIT';
+  else if (pathname.includes('audit') || pathname.includes('admin')) modeName = 'ADMIN / REGULATORY AUDIT';
+  else if (pathname.includes('onboarding')) modeName = 'ONBOARDING / FINANCIAL SETUP';
 
   return (
     <div style={{

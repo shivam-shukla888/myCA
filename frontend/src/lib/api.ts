@@ -162,7 +162,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}, isRetry =
       );
     }
 
-    return json.data as T;
+    return (json && json.data !== undefined ? json.data : json) as T;
   } catch (err: unknown) {
     clearTimeout(timeoutId);
     if (err instanceof ApiError) throw err;
@@ -662,6 +662,7 @@ export interface FreedomScenarioResult {
 }
 
 export interface FreedomAnalysisResponse {
+  target_month?: string;
   current_age: number;
   target_age: number;
   years_to_freedom: number;
@@ -703,8 +704,8 @@ export interface FreedomSimulationInput {
 }
 
 export const freedomApi = {
-  getStatus: async () => {
-    return request<FreedomAnalysisResponse>('/freedom/status');
+  getStatus: async (month?: string) => {
+    return request<FreedomAnalysisResponse>(month ? `/freedom/status?month=${encodeURIComponent(month)}` : '/freedom/status');
   },
   simulate: async (data: FreedomSimulationInput) => {
     return request<FreedomAnalysisResponse>('/freedom/simulate', {
@@ -907,6 +908,82 @@ export const ocrApi = {
     });
   },
 };
+
+export interface CroreScenario {
+  name: string;
+  target_date: string | null;
+  months_to_target: number | null;
+  assumed_return_pct: number;
+  monthly_contribution: number;
+  annual_step_up_pct: number;
+  corpus_at_milestone: number;
+}
+
+export interface CroreMilestone {
+  milestone_corpus: number;
+  milestone_label: string;
+  reached_at_month: number | null;
+  reached_at_date: string | null;
+  is_already_reached: boolean;
+}
+
+export interface CroreSensitivityCell {
+  monthly_investment: number;
+  annual_return_pct: number;
+  months_to_target: number | null;
+  target_date: string | null;
+}
+
+export interface CroreCalculation {
+  starting_capital: number;
+  current_monthly_contribution: number;
+  base_case: CroreScenario;
+  improved_case: CroreScenario;
+  accelerated_case: CroreScenario;
+  shortest_modeled_path: CroreScenario;
+  capital_only_case: CroreScenario;
+  milestones: CroreMilestone[];
+  sensitivity_matrix: CroreSensitivityCell[];
+  lever_analysis: {
+    highest_impact_lever: string;
+    description: string;
+    recommended_change: string;
+  };
+  one_next_action: string;
+  deterministic_assumptions: {
+    compounding_frequency: string;
+    max_return_bound_pct: number;
+    inflation_adjustment: string;
+    model_version: string;
+  };
+}
+
+export interface CroreStatusResponse {
+  canonical_state: any;
+  calculation: CroreCalculation;
+}
+
+export interface CroreSimulationInput {
+  starting_capital?: number;
+  monthly_contribution?: number;
+  annual_return_pct?: number;
+  annual_step_up_pct?: number;
+  lump_sum_injections?: Array<{ month_offset: number; amount: number }>;
+}
+
+export const croreApi = {
+  getStatus: async (month?: string) => {
+    const query = month ? `?month=${encodeURIComponent(month)}` : '';
+    return request<CroreStatusResponse>(`/crore/status${query}`);
+  },
+  simulate: async (input: CroreSimulationInput) => {
+    return request<CroreCalculation>('/crore/simulate', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+};
+
 
 
 

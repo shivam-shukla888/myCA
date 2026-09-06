@@ -19,7 +19,12 @@
     "test:freedom": "tsx tests/step4_freedom.test.ts",
     "test:coach": "tsx tests/step5_coach.test.ts",
     "test:action": "tsx tests/step6_action_engine.test.ts",
-    "test:ocr": "tsx tests/step7_ocr_automation.test.ts"
+    "test:ocr": "tsx tests/step7_ocr_automation.test.ts",
+    "test:knowledge": "tsx tests/knowledge_ingestion.test.ts",
+    "test:rag": "tsx tests/rag_retrieval.test.ts",
+    "test:orchestrator": "tsx tests/ai_orchestrator.test.ts",
+    "test:rag-security": "tsx tests/ai_rag_security.test.ts",
+    "test:adversarial": "tsx tests/adversarial.test.ts"
   },
   "keywords": [
     "personal-ai-ca",

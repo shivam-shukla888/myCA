@@ -146,35 +146,39 @@ export default function IntelligencePage() {
             className="instrument-btn"
             style={{
               background: activeTab === 'coach' ? 'var(--ink-primary)' : 'var(--canvas-surface)',
-              color: activeTab === 'coach' ? 'var(--canvas-base)' : 'var(--ink-secondary)',
+              color: activeTab === 'coach' ? 'var(--ink-inverted)' : 'var(--ink-secondary)',
               border: '1px solid var(--border-hairline)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
               padding: '8px 16px',
               fontSize: '12px',
               fontWeight: 600,
             }}
           >
-            <Sparkles size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-            Interactive Coach
+            <Sparkles size={14} />
+            <span>AI Coach & QA</span>
           </button>
           <button
             onClick={() => {
               setActiveTab('review');
-              if (!dtContext) {
-                handleMonthlyReview();
-              }
+              if (!analysis) handleMonthlyReview();
             }}
             className="instrument-btn"
             style={{
               background: activeTab === 'review' ? 'var(--ink-primary)' : 'var(--canvas-surface)',
-              color: activeTab === 'review' ? 'var(--canvas-base)' : 'var(--ink-secondary)',
+              color: activeTab === 'review' ? 'var(--ink-inverted)' : 'var(--ink-secondary)',
               border: '1px solid var(--border-hairline)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
               padding: '8px 16px',
               fontSize: '12px',
               fontWeight: 600,
             }}
           >
-            <Calendar size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-            Monthly Financial Review
+            <Calendar size={14} />
+            <span>Monthly Financial Review</span>
           </button>
         </div>
       </div>

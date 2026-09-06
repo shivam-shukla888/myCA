@@ -14,7 +14,8 @@ export class FreedomController {
         return;
       }
 
-      const status = await freedomService.getFreedomStatus(userId);
+      const targetMonth = (req.query.targetMonth as string | undefined) || (req.query.month as string | undefined);
+      const status = await freedomService.getFreedomStatus(userId, targetMonth);
       res.status(200).json(status);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to calculate financial freedom status' });

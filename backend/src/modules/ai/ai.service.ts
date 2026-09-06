@@ -16,6 +16,7 @@ import { AIStructuredResponse } from './schemas/aiResponse.schema.js';
 import { env } from '../../config/env.js';
 import { getSupabaseAdminClient } from '../../config/supabase.js';
 import { AppError } from '../../middleware/errorHandler.js';
+import { answerOrchestratorService } from './orchestrator/answerOrchestrator.service.js';
 
 export interface ProcessChatOptions {
   conversationId?: string;
@@ -48,11 +49,15 @@ export class AIService {
       providerName: 'Groq',
     });
 
-    // TIER 2 — OPTIONAL FAILOVER AI PROVIDER (Google Gemini)
-    // Orchestrator: Groq (Primary) -> Gemini (Failover)
+    // TIER 2 — OPTIONAL FAILOVER AI PROVIDER (Google Gemini or Dev Mock)
+    const isProduction = process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production';
+    const secondaryProvider = this.geminiProvider.isAvailable()
+      ? this.geminiProvider
+      : (!isProduction ? this.mockProvider : this.geminiProvider);
+
     this.fallbackProvider = new FallbackAIProvider(
       this.groqProvider,
-      this.geminiProvider
+      secondaryProvider
     );
 
     // DETERMINISTIC PROVIDER SELECTION:
@@ -60,7 +65,6 @@ export class AIService {
     // 2. If Groq is not configured, check if Gemini alone is configured (Tier 2).
     // 3. MockAIProvider is strictly for development/test mode (Tier 3).
     // In production, if neither external provider is configured, fail closed.
-    const isProduction = process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production';
     if (this.groqProvider.isAvailable()) {
       this.activeProvider = this.fallbackProvider;
     } else if (this.geminiProvider.isAvailable()) {
@@ -80,6 +84,7 @@ export class AIService {
 
   setProvider(provider: AIProvider) {
     this.activeProvider = provider;
+    answerOrchestratorService.setProvider(provider);
   }
 
   getProvider(): AIProvider {
@@ -94,7 +99,7 @@ export class AIService {
     userId: string,
     query: string,
     options?: ProcessChatOptions
-  ): Promise<AIStructuredResponse & { conversation_id: string }> {
+  ): Promise<AIStructuredResponse & { conversation_id: string; reasoning_breakdown?: any; statements?: any; deterministic_calculations?: any; verified_facts?: any }> {
     if (!userId) {
       throw new Error('Authenticated user context required');
     }
@@ -112,93 +117,20 @@ export class AIService {
       };
     }
 
-    // 1. Intent & Risk Classification
-    const classification = classifyIntent(query);
-
-    // 2. Pre-Generation Safety Policy Check (Deterministic refusals)
-    const policyRefusal = safetyPolicyEngine.evaluatePreGenerationPolicy(classification);
-    if (policyRefusal) {
-      // Store in audit log and return immediately
-      await auditLogger.logRecommendation(
-        userId,
-        query,
-        policyRefusal,
-        this.activeProvider.getModelName(),
-        conversationId
-      );
-      await this.persistConversationMessages(userId, conversationId, query, policyRefusal.answer);
-
-      return {
-        ...policyRefusal,
-        conversation_id: conversationId,
-      };
-    }
-
-    // 3. RAG Retrieval: Strictly user-scoped data retrieval
-    const retrievedContext = await retrievalService.retrieveContext(userId, query, classification.intent);
-
-    // 4. Context Packaging & Minimization with Injection Barriers
-    const packagedPrompt = contextPackager.packagePromptContext(query, retrievedContext);
-    const fullPrompt = buildPrompt(packagedPrompt);
-
-    // 5. Invoke Model Provider (with automatic primary -> Groq fallback)
-    let modelResponse: AIStructuredResponse;
-    try {
-      modelResponse = await this.activeProvider.generateStructuredResponse(fullPrompt, {
-        temperature: 0.1,
-        systemInstruction: SYSTEM_INSTRUCTION,
-      });
-    } catch (err: any) {
-      throw err;
-    }
-
-    // 6. Grounding & Calculation Validation
-    let validatedResponse = groundingValidator.validateGrounding(modelResponse, retrievedContext);
-
-    // 7. Multi-factor Application-Level Confidence Calculation
-    validatedResponse.confidence_score = confidenceEngine.assessConfidence(validatedResponse, retrievedContext);
-
-    // 8. Enforce Mandatory Centralized Disclaimers
-    const mandatoryDisclaimer = safetyPolicyEngine.getMandatoryDisclaimer(validatedResponse.intent);
-    if (mandatoryDisclaimer.required) {
-      validatedResponse.disclaimer_required = true;
-      validatedResponse.disclaimer = mandatoryDisclaimer.text;
-    }
-
-    // 9. Human Review Gate: Mandatory for HIGH, CRITICAL, UNKNOWN risk or low confidence
-    if (
-      validatedResponse.risk_level === 'HIGH' ||
-      validatedResponse.risk_level === 'CRITICAL' ||
-      validatedResponse.risk_level === 'UNKNOWN' ||
-      validatedResponse.confidence_score < 0.60
-    ) {
-      validatedResponse.human_review_required = true;
-    }
-
-    // 10. Persist to Conversation and Conversation Messages
-    await this.persistConversationMessages(userId, conversationId, query, validatedResponse.answer);
-
-    // 11. Write Audit Log
-    await auditLogger.logRecommendation(
+    const orchestrated = await answerOrchestratorService.orchestrate({
       userId,
       query,
-      validatedResponse,
-      this.activeProvider.getModelName(),
-      conversationId
-    );
-
-    const finalResponse = {
-      ...validatedResponse,
-      conversation_id: conversationId,
-    };
+      conversationId,
+      provider: this.activeProvider,
+    });
 
     // Store in user-scoped cache
     this.queryCache.set(cacheKey, {
-      response: finalResponse,
+      response: orchestrated,
       timestamp: Date.now(),
     });
 
-    return finalResponse;
+    return orchestrated;
   }
 
   private async persistConversationMessages(
