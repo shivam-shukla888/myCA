@@ -1,24 +1,18 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
 import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import { croreApi, CroreCalculation, CroreSimulationInput } from '../../lib/api';
 import {
-  TrendingUp,
-  Target,
   Zap,
-  ArrowRight,
-  ShieldCheck,
   RotateCcw,
   Sparkles,
   AlertCircle,
   Clock,
-  Coins,
   ChevronRight,
   Info,
-  Calendar,
 } from 'lucide-react';
 
 export default function CrorePage() {
@@ -37,7 +31,7 @@ export default function CrorePage() {
   // Active Tab for Deep Dive Drawer
   const [activeTab, setActiveTab] = useState<'scenarios' | 'milestones' | 'sensitivity' | 'simulator'>('scenarios');
 
-  async function loadStatus() {
+  const loadStatus = useCallback(async () => {
     if (!isAuthenticated) return;
     setLoading(true);
     setError(null);
@@ -54,12 +48,12 @@ export default function CrorePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated) return;
     loadStatus();
-  }, [authLoading, isAuthenticated]);
+  }, [authLoading, isAuthenticated, loadStatus]);
 
   async function handleSimulate() {
     setSimulating(true);
@@ -299,15 +293,17 @@ export default function CrorePage() {
 
       {/* Navigation Tabs for Deep Dive */}
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-hairline)', paddingBottom: '8px' }}>
-        {[
-          { id: 'scenarios', label: '5 Scenarios Comparison' },
-          { id: 'milestones', label: 'Milestones (₹1L → ₹1Cr)' },
-          { id: 'sensitivity', label: 'Sensitivity Matrix' },
-          { id: 'simulator', label: 'Interactive Simulator' },
-        ].map((tab) => (
+        {(
+          [
+            { id: 'scenarios', label: '5 Scenarios Comparison' },
+            { id: 'milestones', label: 'Milestones (₹1L → ₹1Cr)' },
+            { id: 'sensitivity', label: 'Sensitivity Matrix' },
+            { id: 'simulator', label: 'Interactive Simulator' },
+          ] as const
+        ).map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             style={{
               padding: '8px 16px',
               borderRadius: '6px',

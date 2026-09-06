@@ -1,17 +1,15 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../context/AuthContext';
 import { AuthRequiredState } from '../components/auth/AuthRequiredState';
-import { transactionApi, allocationApi, Transaction, MonthlyAllocationPlan } from '../lib/api';
+import { transactionApi, allocationApi, Transaction, MonthlyAllocationPlan, MonthlyFinancialSummary } from '../lib/api';
 import AdvancedToggle, { AdvancedDetailsData } from '../components/AdvancedToggle';
 import QuickAdd from '../components/QuickAdd';
 import {
   ArrowUpRight,
   ArrowDownRight,
-  Compass,
-  CheckCircle2,
   AlertCircle,
   Plus,
   ShieldCheck,
@@ -24,7 +22,7 @@ export default function SurfacePage() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [allocationPlan, setAllocationPlan] = useState<MonthlyAllocationPlan | null>(null);
-  const [monthlySummary, setMonthlySummary] = useState<any | null>(null);
+  const [monthlySummary, setMonthlySummary] = useState<MonthlyFinancialSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -32,7 +30,7 @@ export default function SurfacePage() {
   // Current month string (YYYY-MM)
   const currentMonth = new Date().toISOString().slice(0, 7);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     if (!isAuthenticated) return;
     setLoading(true);
     setError(null);
@@ -60,16 +58,16 @@ export default function SurfacePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [isAuthenticated, currentMonth]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated) return;
     loadData();
-  }, [authLoading, isAuthenticated]);
+  }, [authLoading, isAuthenticated, loadData]);
 
   // Derived verified canonical metrics: Observed ledger takes precedence; stated profile plan is fallback
   const hasTransactions = Boolean(
-    monthlySummary && (monthlySummary.total_income > 0 || monthlySummary.total_expenses > 0 || (monthlySummary.transaction_count?.total || 0) > 0)
+    monthlySummary && (monthlySummary.total_income > 0 || monthlySummary.total_expenses > 0)
   );
   const income = hasTransactions ? (monthlySummary?.total_income ?? 0) : (allocationPlan?.monthly_income ?? 0);
   const expenses = hasTransactions ? (monthlySummary?.total_expenses ?? 0) : (allocationPlan?.monthly_expenses ?? 0);
@@ -93,7 +91,7 @@ export default function SurfacePage() {
     } else if (allocationPlan?.emergency_fund && !allocationPlan.emergency_fund.is_complete) {
       const gap = allocationPlan.emergency_fund.emergency_fund_gap;
       primaryFocusTitle = 'Build Your Safety Buffer';
-      primaryFocusMessage = `You have ₹${surplus.toLocaleString('en-IN')} left this month. Allocating this toward your safety buffer brings you closer to your ₹${allocationPlan.emergency_fund.emergency_fund_target.toLocaleString('en-IN')} target.`;
+      primaryFocusMessage = `You have ₹${surplus.toLocaleString('en-IN')} left this month. Allocating this toward your safety buffer brings you closer to your ₹${allocationPlan.emergency_fund.emergency_fund_target.toLocaleString('en-IN')} target (₹${gap.toLocaleString('en-IN')} remaining).`;
       primaryActionLabel = 'Allocate to Safety Fund';
       primaryActionHref = '/plan';
     } else {
@@ -255,7 +253,7 @@ export default function SurfacePage() {
                   ₹{income.toLocaleString('en-IN')}
                 </div>
                 <div style={{ fontSize: '11.5px', color: 'var(--ink-tertiary)', marginTop: '4px' }}>
-                  This month's recorded income
+                  This month&apos;s recorded income
                 </div>
               </div>
 

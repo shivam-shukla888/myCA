@@ -391,6 +391,11 @@ export class AnswerOrchestratorService {
     if (isCurrentFactRequired && !currentFactStatus.isVerified) {
       const refusalAnswer = "I don't have enough verified, authoritative information to answer this current regulatory or statutory question accurately. Under MyCA safety policy, statutory claims must be backed by official Tier 1/2 sources. Please consult the official Income Tax Department (incometax.gov.in), RBI (rbi.org.in), or SEBI (sebi.gov.in) portal.";
 
+      const mandatoryDisclaimer = safetyPolicyEngine.getMandatoryDisclaimer(classification.intent);
+      const disclaimerText = mandatoryDisclaimer.required
+        ? mandatoryDisclaimer.text
+        : 'DISCLAIMER: Authoritative current regulatory source verification could not be established.';
+
       const { statements, breakdown } = statementClassifier.classifyResponse(refusalAnswer);
       const detailedConfidence = confidenceEngine.assessConfidenceDetailed(
         {
@@ -401,7 +406,7 @@ export class AnswerOrchestratorService {
           evidence: [],
           missing_information: ['Authoritative current statutory source verification unavailable.'],
           disclaimer_required: true,
-          disclaimer: 'DISCLAIMER: Authoritative current regulatory source verification could not be established.',
+          disclaimer: disclaimerText,
           human_review_required: true,
           refusal_or_limitation: 'INSUFFICIENT_EVIDENCE',
         },
@@ -427,7 +432,7 @@ export class AnswerOrchestratorService {
         deterministic_calculations: deterministicCalculations,
         missing_information: ['Authoritative current regulatory source verification unavailable.'],
         disclaimer_required: true,
-        disclaimer: 'DISCLAIMER: Authoritative current regulatory source verification could not be established.',
+        disclaimer: disclaimerText,
         human_review_required: true,
         refusal_or_limitation: 'INSUFFICIENT_EVIDENCE',
         provider_used: effectiveProvider.getModelName(),

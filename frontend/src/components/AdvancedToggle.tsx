@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import Modal from './layout/Modal';
-import { Layers, Database, Calculator, CheckCircle, FileText, ChevronRight, Info } from 'lucide-react';
 
 export interface AdvancedDetailsData {
   answer?: string;
@@ -10,7 +9,7 @@ export interface AdvancedDetailsData {
   risk_level?: string;
   confidence_score?: number;
   provider_used?: string;
-  deterministic_calculations?: Record<string, any>;
+  deterministic_calculations?: Record<string, unknown>;
   reasoning_breakdown?: {
     factual_statements_count?: number;
     calculation_statements_count?: number;
@@ -38,7 +37,7 @@ export interface AdvancedDetailsData {
   }>;
   missing_information?: string[];
   disclaimer?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export default function AdvancedToggle({

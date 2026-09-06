@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Plus, Check, AlertCircle, ArrowUpRight, ArrowDownRight, RefreshCw, X } from 'lucide-react';
+import { Check, AlertCircle, ArrowUpRight, ArrowDownRight, RefreshCw, X } from 'lucide-react';
 import { transactionApi, Transaction } from '../lib/api';
 
 interface QuickAddProps {
@@ -194,6 +194,22 @@ export default function QuickAdd({ onSuccess, onCancel }: QuickAddProps) {
           >
             Standard Form
           </button>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="Close form"
+              style={{
+                padding: '4px',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'var(--ink-secondary)',
+              }}
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -252,7 +268,7 @@ export default function QuickAdd({ onSuccess, onCancel }: QuickAddProps) {
             <label className="meta-tag" style={{ display: 'block', marginBottom: '4px' }}>Type</label>
             <select
               value={manualType}
-              onChange={(e) => setManualType(e.target.value as any)}
+              onChange={(e) => setManualType(e.target.value as 'income' | 'expense')}
               style={{ width: '100%', padding: '8px', background: 'var(--canvas-primary)', border: '1px solid var(--border-hairline)' }}
             >
               <option value="expense">Expense (Outflow)</option>

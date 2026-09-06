@@ -959,7 +959,7 @@ export interface CroreCalculation {
 }
 
 export interface CroreStatusResponse {
-  canonical_state: any;
+  canonical_state: Record<string, unknown>;
   calculation: CroreCalculation;
 }
 

@@ -4,14 +4,14 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
-import { Compass, BookOpen, Target, FileText, Cpu, FileCheck, ShieldAlert, LogOut, UserCheck, TrendingUp, Sparkles } from 'lucide-react';
+import { Compass, BookOpen, Target, FileText, FileCheck, ShieldAlert, LogOut, UserCheck, TrendingUp, Sparkles, LucideIcon } from 'lucide-react';
 
 export interface NavigationMode {
   id: string;
   label: string;
   href: string;
   hint: string;
-  icon: any;
+  icon: LucideIcon;
   adminOnly?: boolean;
 }
 
