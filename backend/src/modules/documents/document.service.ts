@@ -90,6 +90,15 @@ export class DocumentService {
     const verificationStatus = 'unverified';
     const processingStatus = 'completed';
 
+    // 1. In-memory duplicate SHA-256 evidence check (for authenticated user)
+    if (input.file_hash) {
+      for (const existingDoc of inMemoryDocuments.values()) {
+        if (existingDoc.user_id === userId && existingDoc.file_hash === input.file_hash) {
+          throw new AppError('Duplicate evidence document detected with identical SHA-256 checksum', 409, 'DUPLICATE_EVIDENCE_DETECTED');
+        }
+      }
+    }
+
     const now = new Date().toISOString();
     const record: DocumentRecord = {
       ...input,
@@ -101,6 +110,7 @@ export class DocumentService {
       verification_status: verificationStatus,
       confirmed_at: null,
       title: input.title || null,
+      file_hash: input.file_hash || null,
       storage_path: storagePath,
       extraction_status: 'pending',
       extraction_confidence: null,
@@ -111,6 +121,20 @@ export class DocumentService {
 
     try {
       const supabase = getSupabaseAdminClient();
+
+      // Check database for duplicate SHA-256 hash for this user
+      if (input.file_hash) {
+        const { data: existingDbDoc } = await supabase
+          .from('documents')
+          .select('id, file_name')
+          .eq('user_id', userId)
+          .eq('file_hash', input.file_hash)
+          .maybeSingle();
+
+        if (existingDbDoc) {
+          throw new AppError('Duplicate evidence document detected with identical SHA-256 checksum', 409, 'DUPLICATE_EVIDENCE_DETECTED');
+        }
+      }
       
       const { data: signedUpload, error: uploadErr } = await supabase.storage
         .from('user-documents')
@@ -131,6 +155,7 @@ export class DocumentService {
         ocr_status: ocrStatus,
         verification_status: verificationStatus,
         title: input.title || null,
+        file_hash: input.file_hash || null,
       };
 
       // Try inserting with all fields
@@ -145,6 +170,7 @@ export class DocumentService {
         document_type: record.document_type,
         extraction_status: record.extraction_status,
         financial_year: record.financial_year || null,
+        file_hash: record.file_hash || null,
         extracted_data: metaEnvelope,
       };
 

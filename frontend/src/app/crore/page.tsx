@@ -29,7 +29,7 @@ import {
 export default function CrorePage() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [calculation, setCalculation] = useState<CroreCalculation | null>(null);
-  const [canonicalState, setCanonicalState] = useState<Record<string, any> | null>(null);
+  const [canonicalState, setCanonicalState] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,7 +133,8 @@ export default function CrorePage() {
   // Capital & Cashflow values
   const currentCapital = calculation?.starting_capital ?? 0;
   const currentMonthlyContribution = calculation?.current_monthly_contribution ?? 0;
-  const currentMonthlySurplus = canonicalState?.cashflow?.monthly_surplus ?? currentMonthlyContribution;
+  const currentMonthlySurplus =
+    (canonicalState?.cashflow as { monthly_surplus?: number } | undefined)?.monthly_surplus ?? currentMonthlyContribution;
   const assumedReturn = calculation?.assumed_return_pct ?? baseCase?.assumed_return_pct ?? 12;
 
   // Active Displayed Target Date & Months

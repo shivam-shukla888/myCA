@@ -243,8 +243,8 @@ export default function VaultPage() {
     try {
       await documentApi.delete(docId);
       await loadDocuments();
-    } catch (err: any) {
-      alert(`Delete failed: ${err.message || 'Unknown error'}`);
+    } catch (err: unknown) {
+      alert(`Delete failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }
 
@@ -327,8 +327,8 @@ export default function VaultPage() {
       const item = await marketApi.addWatchlistSymbol({ symbol: newSymbol });
       setWatchlist([...watchlist, item]);
       setNewSymbol('');
-    } catch (err: any) {
-      setWatchlistError(err.message || 'Failed to add symbol');
+    } catch (err: unknown) {
+      setWatchlistError(err instanceof Error ? err.message : 'Failed to add symbol');
     } finally {
       setAddingSymbol(false);
     }
@@ -339,8 +339,8 @@ export default function VaultPage() {
     try {
       await marketApi.removeWatchlistSymbol(symbol);
       setWatchlist(watchlist.filter((w) => w.symbol !== symbol));
-    } catch (err: any) {
-      alert(`Failed to remove: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Failed to remove: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }
 
@@ -1154,6 +1154,11 @@ export default function VaultPage() {
                 <div>
                   <strong>Equity Quotations:</strong> Reference closing and indicative levels. Licensed market data requires configuring authorized exchange vendor keys. Market movements are isolated as contextual planning data and do NOT automatically mutate your financial accounts or net worth.
                 </div>
+                {marketSummary?.disclaimer && (
+                  <div style={{ marginTop: '8px', padding: '8px 12px', background: 'var(--canvas-inset)', borderRadius: '4px', fontStyle: 'italic', borderLeft: '3px solid #eab308' }}>
+                    {marketSummary.disclaimer}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -50,6 +50,7 @@ export const createDocumentSchema = z
     source_type: z.enum(ALLOWED_SOURCE_TYPES).optional(),
     title: z.string().max(255).nullish(),
     financial_year: z.string().regex(/^\d{4}-\d{2}$/, 'Financial year must be format YYYY-YY (e.g. 2025-26)').optional(),
+    file_hash: z.string().regex(/^[a-fA-F0-9]{64}$/, 'SHA-256 hash must be 64 hexadecimal characters').nullish(),
   })
   .superRefine((data, ctx) => {
     const lowerName = data.file_name.toLowerCase();
