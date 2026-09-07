@@ -122,15 +122,9 @@ export class DocumentService {
     try {
       const supabase = getSupabaseAdminClient();
 
-      // Check database for duplicate SHA-256 hash for this user
+      // Check database for duplicate SHA-256 hash for this user (resilient across schema versions)
       if (input.file_hash) {
-        const { data: existingDbDoc } = await supabase
-          .from('documents')
-          .select('id, file_name')
-          .eq('user_id', userId)
-          .eq('file_hash', input.file_hash)
-          .maybeSingle();
-
+        const existingDbDoc = await this.findDuplicateByHash(userId, input.file_hash);
         if (existingDbDoc) {
           throw new AppError('Duplicate evidence document detected with identical SHA-256 checksum', 409, 'DUPLICATE_EVIDENCE_DETECTED');
         }
@@ -174,11 +168,23 @@ export class DocumentService {
         extracted_data: metaEnvelope,
       };
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('documents')
         .insert(dbInsertPayload)
         .select()
         .single();
+
+      // Schema cache fallback: if top-level file_hash column is not in PostgREST cache, insert with JSONB metadata
+      if (error && (error.message.includes('file_hash') || error.message.includes('schema cache'))) {
+        delete dbInsertPayload.file_hash;
+        const retryResult = await supabase
+          .from('documents')
+          .insert(dbInsertPayload)
+          .select()
+          .single();
+        data = retryResult.data;
+        error = retryResult.error;
+      }
 
       if (error) {
         if (isProduction) {
