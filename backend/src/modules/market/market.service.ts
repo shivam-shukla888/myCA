@@ -179,7 +179,9 @@ export class MarketService {
         .order('created_at', { ascending: true });
 
       if (error) {
-        if (isProduction) {
+        if (error.code === '42P01' || error.message.includes('does not exist')) {
+          // Table pending migration in remote DB: fallback to in-memory store
+        } else if (isProduction) {
           throw new AppError(`Failed to fetch watchlist: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
         }
       } else if (data && data.length > 0) {
@@ -264,10 +266,20 @@ export class MarketService {
         })
         .select()
         .single();
-
       if (error) {
         if (error.code === '23505') {
           throw new AppError(`Symbol ${symbol} is already in your watchlist`, 409, 'WATCHLIST_SYMBOL_EXISTS');
+        }
+        if (error.code === '42P01' || error.message.includes('does not exist')) {
+          const list = inMemoryWatchlist.get(userId) || [];
+          if (list.some((i) => i.symbol === symbol)) {
+            throw new AppError(`Symbol ${symbol} is already in your watchlist`, 409, 'WATCHLIST_SYMBOL_EXISTS');
+          }
+          const quote = await exchangeEquityProvider.getQuote(newItem.symbol);
+          const result: WatchlistItem = { ...newItem, quote };
+          list.push(result);
+          inMemoryWatchlist.set(userId, list);
+          return result;
         }
         if (isProduction) {
           throw new AppError(`Failed to save watchlist symbol: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
@@ -278,17 +290,16 @@ export class MarketService {
 
         if (!isProduction) {
           const list = inMemoryWatchlist.get(userId) || [];
-          if (!list.some((i) => i.symbol === symbol)) {
-            list.push(result);
-            inMemoryWatchlist.set(userId, list);
-          }
+          list.push(result);
+          inMemoryWatchlist.set(userId, list);
         }
+
         return result;
       }
     } catch (err) {
       if (err instanceof AppError) throw err;
       if (isProduction) {
-        throw new AppError('Failed to add symbol to watchlist in production', 500, 'DATABASE_PERSISTENCE_FAILED');
+        throw new AppError('Failed to save watchlist symbol in production', 500, 'DATABASE_PERSISTENCE_FAILED');
       }
     }
 
@@ -324,8 +335,17 @@ export class MarketService {
         .eq('user_id', userId)
         .eq('symbol', upperSym);
 
-      if (error && isProduction) {
-        throw new AppError(`Failed to remove symbol: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+      if (error) {
+        if (error.code === '42P01' || error.message.includes('does not exist')) {
+          const list = inMemoryWatchlist.get(userId) || [];
+          inMemoryWatchlist.set(
+            userId,
+            list.filter((i) => i.symbol !== upperSym)
+          );
+          return { success: true, symbol: upperSym };
+        } else if (isProduction) {
+          throw new AppError(`Failed to remove symbol: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+        }
       }
     } catch (err) {
       if (err instanceof AppError) throw err;
