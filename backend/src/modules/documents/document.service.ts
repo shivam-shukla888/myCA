@@ -62,7 +62,7 @@ export class DocumentService {
       throw new AppError('User context is required', 401, 'UNAUTHORIZED');
     }
 
-    const isProduction = env.NODE_ENV === 'production';
+    const isProduction = process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production';
     const documentId = uuidv4();
 
     // Strict path traversal and filename validation
@@ -168,23 +168,11 @@ export class DocumentService {
         extracted_data: metaEnvelope,
       };
 
-      let { data, error } = await supabase
+      const { data, error } = await supabase
         .from('documents')
         .insert(dbInsertPayload)
         .select()
         .single();
-
-      // Schema cache fallback: if top-level file_hash column is not in PostgREST cache, insert with JSONB metadata
-      if (error && (error.message.includes('file_hash') || error.message.includes('schema cache'))) {
-        delete dbInsertPayload.file_hash;
-        const retryResult = await supabase
-          .from('documents')
-          .insert(dbInsertPayload)
-          .select()
-          .single();
-        data = retryResult.data;
-        error = retryResult.error;
-      }
 
       if (error) {
         if (isProduction) {
@@ -539,29 +527,39 @@ export class DocumentService {
   }
 
   async findDuplicateByHash(userId: string, fileHash: string, excludeDocId?: string): Promise<DocumentRecord | null> {
-    const isProduction = env.NODE_ENV === 'production';
+    const isProduction = process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production';
     try {
       const supabase = getSupabaseAdminClient();
-      const { data: existingDocs } = await supabase
+      let query = supabase
         .from('documents')
         .select('*')
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .eq('file_hash', fileHash);
 
-      if (existingDocs && existingDocs.length > 0) {
-        const found = existingDocs.find((doc: any) => {
-          if (excludeDocId && doc.id === excludeDocId) return false;
-          const hash = doc.file_hash || doc.extracted_data?.file_hash;
-          return hash === fileHash;
-        });
-        if (found) return normalizeDocumentRecord(found);
+      if (excludeDocId) {
+        query = query.neq('id', excludeDocId);
       }
-    } catch (err) {
+
+      const { data, error } = await query.maybeSingle();
+      if (error) {
+        if (isProduction) {
+          throw new AppError(`Database query failed during document deduplication check: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
+        }
+      } else if (data) {
+        return normalizeDocumentRecord(data);
+      }
+    } catch (err: any) {
+      if (err instanceof AppError) throw err;
       if (isProduction) {
         throw new AppError('Database query failed during document deduplication check', 500, 'DATABASE_QUERY_FAILED');
       }
     }
 
-    // In-memory fallback for test and non-production environments
+    if (isProduction) {
+      return null;
+    }
+
+    // In-memory fallback for test and non-production environments only
     const userDocs = Array.from(inMemoryDocuments.values()).filter((d) => d.user_id === userId);
     const inMemFound = userDocs.find((d) => {
       if (excludeDocId && d.id === excludeDocId) return false;

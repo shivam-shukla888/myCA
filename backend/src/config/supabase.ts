@@ -45,3 +45,7 @@ export function getSupabaseAdminClient(): SupabaseClient {
   }
   return supabaseAdminClient;
 }
+
+export function setSupabaseAdminClient(client: any): void {
+  supabaseAdminClient = client;
+}

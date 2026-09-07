@@ -6,9 +6,11 @@ ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS ocr_status TEXT DEFAULT 'n
 ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'unverified' CHECK (verification_status IN ('unverified', 'draft_ready', 'user_confirmed', 'rejected'));
 ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
 ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS file_hash TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_documents_source_type ON public.documents(source_type);
 CREATE INDEX IF NOT EXISTS idx_documents_verification_status ON public.documents(verification_status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_user_file_hash ON public.documents(user_id, file_hash) WHERE file_hash IS NOT NULL;
 
 -- 2. User-Specific Stock and Index Watchlist
 CREATE TABLE IF NOT EXISTS public.market_watchlist (
@@ -24,17 +26,32 @@ CREATE TABLE IF NOT EXISTS public.market_watchlist (
 
 ALTER TABLE public.market_watchlist ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "market_watchlist_select_own" ON public.market_watchlist
-    FOR SELECT TO authenticated
-    USING (auth.uid() = user_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'market_watchlist' AND policyname = 'market_watchlist_select_own'
+    ) THEN
+        CREATE POLICY "market_watchlist_select_own" ON public.market_watchlist
+            FOR SELECT TO authenticated
+            USING (auth.uid() = user_id);
+    END IF;
 
-CREATE POLICY "market_watchlist_insert_own" ON public.market_watchlist
-    FOR INSERT TO authenticated
-    WITH CHECK (auth.uid() = user_id);
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'market_watchlist' AND policyname = 'market_watchlist_insert_own'
+    ) THEN
+        CREATE POLICY "market_watchlist_insert_own" ON public.market_watchlist
+            FOR INSERT TO authenticated
+            WITH CHECK (auth.uid() = user_id);
+    END IF;
 
-CREATE POLICY "market_watchlist_delete_own" ON public.market_watchlist
-    FOR DELETE TO authenticated
-    USING (auth.uid() = user_id);
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'market_watchlist' AND policyname = 'market_watchlist_delete_own'
+    ) THEN
+        CREATE POLICY "market_watchlist_delete_own" ON public.market_watchlist
+            FOR DELETE TO authenticated
+            USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_market_watchlist_user_id ON public.market_watchlist(user_id);
 
@@ -62,6 +79,14 @@ CREATE TABLE IF NOT EXISTS public.market_data_cache (
 
 ALTER TABLE public.market_data_cache ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "market_data_cache_select" ON public.market_data_cache
-    FOR SELECT TO authenticated
-    USING (true);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'market_data_cache' AND policyname = 'market_data_cache_select'
+    ) THEN
+        CREATE POLICY "market_data_cache_select" ON public.market_data_cache
+            FOR SELECT TO authenticated
+            USING (true);
+    END IF;
+END $$;
+

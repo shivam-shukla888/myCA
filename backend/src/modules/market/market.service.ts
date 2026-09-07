@@ -118,12 +118,102 @@ export class MarketService {
         };
       }
 
+      // If process memory is empty (e.g. freshly restarted), attempt fallback to persistent DB cache
+      try {
+        const supabase = getSupabaseAdminClient();
+        const { data: dbRows, error: dbErr } = await supabase.from('market_data_cache').select('*');
+        if (dbErr && env.NODE_ENV === 'production') {
+          throw new AppError(`Database query failed for market cache: ${dbErr.message}`, 500, 'DATABASE_QUERY_FAILED');
+        }
+        if (dbRows && dbRows.length > 0) {
+          const reconstructed = this.reconstructSummaryFromDbCache(dbRows);
+          if (reconstructed) return reconstructed;
+        }
+      } catch (dbEx) {
+        if (dbEx instanceof AppError) throw dbEx;
+      }
+
       throw new AppError(
         `Failed to fetch market intelligence: ${err.message || 'Data source unavailable'}`,
         503,
         'MARKET_DATA_SERVICE_UNAVAILABLE'
       );
     }
+  }
+
+  /**
+   * Reconstruct market summary from database cache rows
+   */
+  private reconstructSummaryFromDbCache(rows: any[]): MarketSummaryResponse | null {
+    const toMetric = (r: any): MarketMetric => ({
+      metric: r.metric_key,
+      label: r.metadata?.label || r.metric_key.replace(/_/g, ' '),
+      value: Number(r.value),
+      display_value: r.metadata?.display_value || `${r.value} ${r.unit}`,
+      currency: r.currency,
+      unit: r.unit,
+      change: r.change !== null ? Number(r.change) : null,
+      percentage_change: r.percentage_change !== null ? Number(r.percentage_change) : null,
+      market_status: r.market_status,
+      source: r.source,
+      source_url: r.source_url,
+      observed_period: r.observed_period,
+      published_at: r.published_at,
+      observed_at: r.observed_at,
+      fetched_at: r.fetched_at,
+      freshness_type: 'CACHED',
+      is_stale: true,
+      notes: r.metadata?.notes,
+    });
+
+    const metrics = rows.map(toMetric);
+    const inflation = metrics.find((m) => m.metric === 'CPI_INFLATION');
+    const gold = metrics.filter((m) => m.metric.startsWith('GOLD_'));
+    const fx = metrics.filter((m) => m.metric.startsWith('FX_'));
+    const indices = metrics.filter((m) => m.metric.startsWith('INDEX_'));
+
+    if (!inflation) return null;
+
+    return {
+      inflation,
+      gold,
+      fx,
+      indices,
+      market_status: getIndianMarketStatus(),
+      last_updated: new Date().toISOString(),
+      sources: [
+        {
+          category: 'INFLATION',
+          source: 'MoSPI (Ministry of Statistics and Programme Implementation)',
+          source_url: 'https://mospi.gov.in',
+          freshness: 'MONTHLY',
+          description: 'Official CPI Combined headline rate. Released monthly on the 12th.',
+        },
+        {
+          category: 'GOLD',
+          source: 'IBJA / Bullion Reference Feed',
+          source_url: 'https://www.ibja.co',
+          freshness: 'DAILY',
+          description: 'Domestic standard 24K and 22K reference bullion price per 10 grams.',
+        },
+        {
+          category: 'FOREIGN EXCHANGE',
+          source: 'RBI (Reserve Bank of India Reference Rate)',
+          source_url: 'https://www.rbi.org.in',
+          freshness: 'DAILY',
+          description: 'Official RBI reference rates published on trading weekdays.',
+        },
+        {
+          category: 'EQUITY INDICES',
+          source: 'NSE / BSE Authorized Reference Feed',
+          source_url: 'https://www.nseindia.com',
+          freshness: 'DAILY',
+          description: 'Benchmark indices tracking broader market performance.',
+        },
+      ],
+      disclaimer:
+        'STATUTORY DISCLAIMER: Market information is provided strictly for financial context and planning awareness. Personal CA does not provide stock recommendations, investment advice, or brokerage services. Market movements do not mutate your verified financial records.',
+    };
   }
 
   /**
@@ -149,7 +239,7 @@ export class MarketService {
         observed_at: m.observed_at,
         fetched_at: m.fetched_at,
         freshness_type: m.freshness_type,
-        metadata: { notes: m.notes },
+        metadata: { notes: m.notes, label: m.label, display_value: m.display_value },
         updated_at: new Date().toISOString(),
       }));
 
@@ -167,7 +257,7 @@ export class MarketService {
       throw new AppError('User context required', 401, 'UNAUTHORIZED');
     }
 
-    const isProduction = env.NODE_ENV === 'production';
+    const isProduction = process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production';
     let userItems: WatchlistItem[] = [];
 
     try {
@@ -179,28 +269,26 @@ export class MarketService {
         .order('created_at', { ascending: true });
 
       if (error) {
-        if (error.code === '42P01' || error.message.includes('does not exist')) {
-          // Table pending migration in remote DB: fallback to in-memory store
-        } else if (isProduction) {
+        if (isProduction) {
           throw new AppError(`Failed to fetch watchlist: ${error.message}`, 500, 'DATABASE_QUERY_FAILED');
         }
-      } else if (data && data.length > 0) {
+      } else if (data) {
         userItems = data;
       }
     } catch (err) {
       if (err instanceof AppError) throw err;
       if (isProduction) {
-        throw new AppError('Watchlist fetch failed in production', 500, 'DATABASE_QUERY_FAILED');
+        throw new AppError('Watchlist fetch failed in production database', 500, 'DATABASE_QUERY_FAILED');
       }
     }
 
-    // In-memory fallback if DB empty or non-production
-    if (userItems.length === 0) {
+    // In-memory fallback ONLY for explicit non-production/test environments
+    if (!isProduction && userItems.length === 0) {
       const existingInMem = inMemoryWatchlist.get(userId);
       if (existingInMem && existingInMem.length > 0) {
         userItems = existingInMem;
       } else {
-        // Seed initial default blue-chip watchlist for new user
+        // Seed initial default blue-chip watchlist for test/dev user
         const seeded: WatchlistItem[] = DEFAULT_USER_WATCHLIST_SYMBOLS.map((sym) => ({
           id: uuidv4(),
           user_id: userId,
@@ -237,7 +325,7 @@ export class MarketService {
       throw new AppError('User context required', 401, 'UNAUTHORIZED');
     }
 
-    const isProduction = env.NODE_ENV === 'production';
+    const isProduction = process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production';
     const symbol = input.symbol.toUpperCase().trim();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -266,20 +354,10 @@ export class MarketService {
         })
         .select()
         .single();
+
       if (error) {
         if (error.code === '23505') {
           throw new AppError(`Symbol ${symbol} is already in your watchlist`, 409, 'WATCHLIST_SYMBOL_EXISTS');
-        }
-        if (error.code === '42P01' || error.message.includes('does not exist')) {
-          const list = inMemoryWatchlist.get(userId) || [];
-          if (list.some((i) => i.symbol === symbol)) {
-            throw new AppError(`Symbol ${symbol} is already in your watchlist`, 409, 'WATCHLIST_SYMBOL_EXISTS');
-          }
-          const quote = await exchangeEquityProvider.getQuote(newItem.symbol);
-          const result: WatchlistItem = { ...newItem, quote };
-          list.push(result);
-          inMemoryWatchlist.set(userId, list);
-          return result;
         }
         if (isProduction) {
           throw new AppError(`Failed to save watchlist symbol: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
@@ -303,7 +381,11 @@ export class MarketService {
       }
     }
 
-    // In-memory fallback
+    if (isProduction) {
+      throw new AppError('Failed to save watchlist symbol in production database', 500, 'DATABASE_PERSISTENCE_FAILED');
+    }
+
+    // In-memory fallback ONLY for development/test mode
     const list = inMemoryWatchlist.get(userId) || [];
     if (list.some((i) => i.symbol === symbol)) {
       throw new AppError(`Symbol ${symbol} is already in your watchlist`, 409, 'WATCHLIST_SYMBOL_EXISTS');
@@ -324,7 +406,7 @@ export class MarketService {
       throw new AppError('User context required', 401, 'UNAUTHORIZED');
     }
 
-    const isProduction = env.NODE_ENV === 'production';
+    const isProduction = process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production';
     const upperSym = symbol.toUpperCase().trim();
 
     try {
@@ -336,22 +418,28 @@ export class MarketService {
         .eq('symbol', upperSym);
 
       if (error) {
-        if (error.code === '42P01' || error.message.includes('does not exist')) {
+        if (isProduction) {
+          throw new AppError(`Failed to remove symbol: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
+        }
+      } else {
+        if (!isProduction) {
           const list = inMemoryWatchlist.get(userId) || [];
           inMemoryWatchlist.set(
             userId,
             list.filter((i) => i.symbol !== upperSym)
           );
-          return { success: true, symbol: upperSym };
-        } else if (isProduction) {
-          throw new AppError(`Failed to remove symbol: ${error.message}`, 500, 'DATABASE_PERSISTENCE_FAILED');
         }
+        return { success: true, symbol: upperSym };
       }
     } catch (err) {
       if (err instanceof AppError) throw err;
       if (isProduction) {
         throw new AppError('Failed to remove symbol in production', 500, 'DATABASE_PERSISTENCE_FAILED');
       }
+    }
+
+    if (isProduction) {
+      throw new AppError('Failed to remove symbol in production database', 500, 'DATABASE_PERSISTENCE_FAILED');
     }
 
     const list = inMemoryWatchlist.get(userId) || [];
