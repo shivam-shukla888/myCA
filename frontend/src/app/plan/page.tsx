@@ -287,6 +287,24 @@ export default function PlanPage() {
   const isDeficit = activePlanToDisplay?.is_deficit ?? false;
   const surplus = activePlanToDisplay?.monthly_surplus ?? 0;
 
+  if (authLoading) {
+    return (
+      <div style={{ padding: '64px 20px', textAlign: 'center', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        Verifying secure workspace session...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthRequiredState
+        modeTag="GOALS & ALLOCATION • SECURE MODE"
+        title="Sign in to view your monthly execution plan"
+        description="Allocate your monthly surplus systematically into emergency safety reserves, milestone goals, and accelerated investments."
+      />
+    );
+  }
+
   return (
     <div style={{ padding: '0', maxWidth: '1400px', width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Top Header */}

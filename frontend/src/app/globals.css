@@ -330,3 +330,44 @@ button.instrument-btn-secondary {
   }
 }
 
+/* 360px (Samsung Galaxy / Ultra-compact Android) */
+@media (max-width: 360px) {
+  .content-canvas {
+    padding: 8px 4px;
+  }
+  .instrument-btn {
+    padding: 6px 10px;
+    font-size: 11.5px;
+  }
+  .tabular-nums, [data-financial-num] {
+    font-size: 88%;
+  }
+}
+
+/* Wide Desktop Viewports (>= 1440px and 1920px) */
+@media (min-width: 1440px) {
+  .content-canvas {
+    padding: 40px 60px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .content-canvas {
+    padding: 48px 80px;
+  }
+}
+
+/* Fluid responsive utilities */
+@media (max-width: 768px) {
+  .stack-mobile {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .full-width-mobile {
+    width: 100% !important;
+  }
+  .mobile-grid-1col {
+    grid-template-columns: 1fr !important;
+  }
+}
+

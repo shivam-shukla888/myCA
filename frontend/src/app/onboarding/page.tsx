@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
+import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import { allocationApi, authApi } from '../../lib/api';
 import {
   User,
@@ -130,6 +131,16 @@ export default function OnboardingPage() {
       <div style={{ maxWidth: '600px', margin: '80px auto', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
         <span className="meta-tag">Initializing Workspace Identity...</span>
       </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthRequiredState
+        modeTag="ONBOARDING • SETUP"
+        title="Sign in to complete financial onboarding"
+        description="Set up your verified income, expenses, and wealth targets."
+      />
     );
   }
 

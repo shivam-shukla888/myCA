@@ -247,7 +247,12 @@ export default function LedgerPage() {
 
   const isSurplusPositive = (summary?.monthly_surplus ?? 0) >= 0;
 
-  return (<AuthGuard>
+  return (
+    <AuthGuard
+      modeTag="MONEY • TEMPORAL STREAM"
+      title="Sign in to view your financial ledger"
+      description="Track your temporal transaction stream, categorised income, essential expenses, and verified surplus."
+    >
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
       {/* Top Banner & Month Navigation Header */}
       <div style={{

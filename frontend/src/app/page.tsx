@@ -340,25 +340,7 @@ export default function SurfacePage() {
 
       <hr className="hairline-rule" style={{ margin: 0 }} />
 
-      {/* Auth Loading / Guest State */}
-      {authLoading && (
-        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)' }}>
-          Reconciling workspace identity...
-        </div>
-      )}
-
-      {!authLoading && !isAuthenticated && (
-        <AuthRequiredState
-          modeTag="PERSONAL CA • WELCOME"
-          title="Sign in to your Personal Financial Coach"
-          description="Understand your money, track your actual surplus, and execute the shortest path to ₹1 Crore."
-        />
-      )}
-
-      {/* Authenticated Dashboard */}
-      {!authLoading && isAuthenticated && (
-        <>
-          {/* Quick Record Modal / Inset */}
+      {/* Quick Record Modal / Inset */}
           {showQuickAdd && (
             <div style={{ marginBottom: '16px' }}>
               <QuickAdd
@@ -767,8 +749,6 @@ export default function SurfacePage() {
               </div>
             </div>
           </section>
-        </>
-      )}
     </div>
   );
 }

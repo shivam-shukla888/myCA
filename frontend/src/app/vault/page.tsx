@@ -354,6 +354,24 @@ export default function VaultPage() {
     return true;
   });
 
+  if (authLoading) {
+    return (
+      <div style={{ padding: '64px 20px', textAlign: 'center', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        Verifying secure workspace session...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthRequiredState
+        modeTag="EVIDENCE VAULT • SECURE ARCHIVE"
+        title="Sign in to access your financial evidence vault"
+        description="Encrypted multi-media evidence storage for tax proofs, bank statements, receipts, and video records."
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       {/* Hidden File Inputs for Explicit Media Choices */}

@@ -3,6 +3,7 @@ import './globals.css';
 import { AuthProvider } from '../context/AuthContext';
 import { CommandSpine } from '../components/layout/CommandSpine';
 import { FinancialStatusStrip } from '../components/layout/FinancialStatusStrip';
+import { MainCanvas } from '../components/layout/MainCanvas';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://myca.in';
 
@@ -101,9 +102,9 @@ export default function RootLayout({
             <CommandSpine />
             <div className="main-stage">
               <FinancialStatusStrip />
-              <main className="content-canvas" role="main">
+              <MainCanvas>
                 {children}
-              </main>
+              </MainCanvas>
             </div>
           </div>
         </AuthProvider>

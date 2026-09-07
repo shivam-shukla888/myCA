@@ -6,13 +6,13 @@ import { useAuth } from '../../../context/AuthContext';
 import { Lock } from 'lucide-react';
 
 export default function AdminAuditPage() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const [logs, setLogs] = useState<AdminAuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user?.role !== 'ADMIN') {
+    if (authLoading || user?.role !== 'ADMIN') {
       return;
     }
 
@@ -35,7 +35,15 @@ export default function AdminAuditPage() {
     return () => {
       ignore = true;
     };
-  }, [user?.role]);
+  }, [authLoading, user?.role]);
+
+  if (authLoading) {
+    return (
+      <div style={{ padding: '64px 20px', textAlign: 'center', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        Verifying secure workspace session...
+      </div>
+    );
+  }
 
   // RBAC Access Restriction Gate
   if (user?.role !== 'ADMIN') {

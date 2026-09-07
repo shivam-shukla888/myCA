@@ -53,6 +53,24 @@ export default function StatementsPage() {
     };
   }, [authLoading, isAuthenticated]);
 
+  if (authLoading) {
+    return (
+      <div style={{ padding: '64px 20px', textAlign: 'center', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        Verifying secure workspace session...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthRequiredState
+        modeTag="STATEMENTS • FISCAL DOSSIER"
+        title="Sign in to view your statutory tax dossier"
+        description="Statutory fiscal summary and tax computations calculated strictly from your verified ledger."
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       {/* Header */}

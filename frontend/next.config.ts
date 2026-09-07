@@ -40,6 +40,35 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: '/money',
+        destination: '/ledger',
+        permanent: false,
+      },
+      {
+        source: '/myca',
+        destination: '/intelligence',
+        permanent: false,
+      },
+      {
+        source: '/audit-logs',
+        destination: '/admin/audit',
+        permanent: false,
+      },
+      {
+        source: '/profile',
+        destination: '/onboarding',
+        permanent: false,
+      },
+      {
+        source: '/settings',
+        destination: '/login',
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_API_URL || 'https://personal-ca-backend.onrender.com';
     return [

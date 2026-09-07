@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
+import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import {
   chatApi,
   ChatResponse,
@@ -31,7 +32,7 @@ import {
 } from 'lucide-react';
 
 export default function IntelligencePage() {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'coach' | 'review' | 'behavioral'>('coach');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -182,6 +183,24 @@ export default function IntelligencePage() {
 
   const dtContext = analysis?.deterministic_context;
   const reviewPoints: ReviewPoints = analysis ? parseReviewPoints(analysis.answer) : {};
+
+  if (authLoading) {
+    return (
+      <div style={{ padding: '64px 20px', textAlign: 'center', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        Verifying secure workspace session...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthRequiredState
+        modeTag="MYCA • AI FINANCIAL COACH"
+        title="Sign in to consult your personal AI coach"
+        description="Conversational guidance grounded strictly and privately in your verified ledger, surplus, and roadmap."
+      />
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>

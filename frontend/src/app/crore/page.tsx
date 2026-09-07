@@ -143,6 +143,24 @@ export default function CrorePage() {
   const displayedYears = displayedMonths !== null && displayedMonths !== undefined ? (displayedMonths / 12).toFixed(1) : null;
   const displayedMonthlyInv = activeLever?.monthly_contribution ?? (customSimResult ? customSimResult.current_monthly_contribution : currentMonthlyContribution);
 
+  if (authLoading) {
+    return (
+      <div style={{ padding: '64px 20px', textAlign: 'center', color: 'var(--ink-secondary)', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        Verifying secure workspace session...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthRequiredState
+        modeTag="₹1 CRORE • SECURE ENGINE"
+        title="Sign in to unlock your ₹1 Crore roadmap"
+        description="Calculate your shortest path to ₹1 Crore grounded strictly in your verified financial reality and surplus."
+      />
+    );
+  }
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
       {/* Header with Mode Distinction */}

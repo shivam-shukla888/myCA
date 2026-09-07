@@ -1,30 +1,48 @@
-import React, { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+'use client';
+
+import React from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { AuthRequiredState } from '../auth/AuthRequiredState';
 
-type AuthGuardProps = {
+export interface AuthGuardProps {
   children: React.ReactNode;
-};
+  modeTag?: string;
+  title?: string;
+  description?: string;
+}
 
-export default function AuthGuard({ children }: AuthGuardProps) {
+export default function AuthGuard({
+  children,
+  modeTag = 'SECURE OPERATIONAL MODE',
+  title = 'Identity Verification Required',
+  description = 'This workspace area accesses isolated financial records and requires verified authentication.',
+}: AuthGuardProps) {
   const { isAuthenticated, isLoading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      // Redirect unauthenticated users to login page
-      router.replace('/login');
-    }
-  }, [isLoading, isAuthenticated, router]);
 
   if (isLoading) {
-    // Optionally render a loading placeholder
-    return <div>Loading...</div>;
+    return (
+      <div
+        style={{
+          padding: '64px 20px',
+          textAlign: 'center',
+          color: 'var(--ink-secondary)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '13px',
+        }}
+      >
+        Verifying secure workspace session...
+      </div>
+    );
   }
 
-  // While redirect is happening, render nothing to avoid flash of content
   if (!isAuthenticated) {
-    return null;
+    return (
+      <AuthRequiredState
+        modeTag={modeTag}
+        title={title}
+        description={description}
+      />
+    );
   }
 
   return <>{children}</>;
